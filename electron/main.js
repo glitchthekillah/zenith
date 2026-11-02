@@ -22,6 +22,13 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: t
 if (process.platform === 'win32') app.setAppUserModelId('com.glitch.zenith');
 if (!app.requestSingleInstanceLock()) app.quit();
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport');
+if (process.platform === 'linux') {
+  // Keep audio in the window's process so Discord can capture its playback.
+  const disabled = new Set(app.commandLine.getSwitchValue('disable-features').split(',').filter(Boolean));
+  disabled.add('AudioServiceOutOfProcess');
+  app.commandLine.appendSwitch('disable-features', [...disabled].join(','));
+}
+
 
 let win = null;
 let normalBounds = null; // where the window was before the mini player
