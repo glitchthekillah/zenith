@@ -1,0 +1,10 @@
+﻿node_modules/
+dist/
+dist-current/
+tests/fixtures/
+*.log
+*.bak*
+*.before-*
+*.zip
+.env
+.env.*
