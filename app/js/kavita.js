@@ -80,6 +80,7 @@ export const bookPage = (chapterId, page) => call(`/api/Book/${chapterId}/book-p
 
 export const cover = (seriesId) => `${S().url}/api/Image/series-cover?seriesId=${seriesId}&apiKey=${S().apiKey}`;
 export const chapterCover = (chapterId) => `${S().url}/api/Image/chapter-cover?chapterId=${chapterId}&apiKey=${S().apiKey}`;
+export const volumeCover = (volumeId) => `${S().url}/api/Image/volume-cover?volumeId=${volumeId}&apiKey=${S().apiKey}`;
 export const pageImage = (chapterId, page) => `${S().url}/api/Reader/image?chapterId=${chapterId}&page=${page}&apiKey=${S().apiKey}&extractPdf=true`;
 // Kavita format numbers: 0 image, 1 archive (comic/manga), 2 unknown, 3 epub, 4 pdf
 export const isBook = (format) => format === 3;

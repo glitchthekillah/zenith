@@ -6,10 +6,12 @@ import * as rq from './requests.js';
 import './watch.js';
 import './read.js';
 import './request.js';
-import { applyTheme } from './settings.js';
+import { applyTheme, applySky } from './settings.js';
+import { loadAvatar, avatarHtml } from './avatar.js';
 import * as player from './player.js';
 
-applyTheme();
+applyTheme(); applySky();
+loadAvatar().then(() => { if (!$('#top').hidden) topBar(); });
 
 // Desktop: our own title bar and window buttons
 if (desktop) {
@@ -30,7 +32,7 @@ if (desktop) {
 // Top bar
 const NAV = [['home', 'home', 'Home'], ['movies', 'film', 'Movies'], ['shows', 'tv', 'Shows'], ['read', 'book', 'Read'], ['request', 'plus', 'Request']];
 function topBar() {
-  const name = settings.servers.jellyfin?.name || settings.servers.kavita?.name || settings.servers.ask?.name || '?';
+  const name = settings.profile?.name || settings.servers.jellyfin?.name || settings.servers.kavita?.name || settings.servers.ask?.name || '?';
   const show = { movies: jf.ready(), shows: jf.ready(), read: kv.ready(), request: !!rq.provider(), home: true };
   $('#top').hidden = false;
   $('#top').innerHTML = `<a class="brand" href="#/home"><span class="orb"></span><b>zenith</b></a>
@@ -38,7 +40,7 @@ function topBar() {
     <form class="search" id="top-search" role="search"><div class="field">${icon('search')}<input name="q" placeholder="Search everything" autocomplete="off" aria-label="Search"></div></form>
     <div class="tools">${desktop ? `<a class="icon-btn dl-count" data-dl-badge href="#/downloads" title="Downloads">${icon('download')}</a>` : ''}
       <a class="icon-btn" href="#/settings" title="Settings">${icon('settings')}</a>
-      <a class="me" href="#/settings" title="${esc(name)}" style="display:grid;place-items:center;text-decoration:none">${esc(name.slice(0, 1).toUpperCase())}</a></div>`;
+      <a class="me" href="#/settings" title="${esc(name)}" style="display:grid;place-items:center;text-decoration:none;overflow:hidden">${avatarHtml(name)}</a></div>`;
   paintNav();
 }
 function paintNav() {

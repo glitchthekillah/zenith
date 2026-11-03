@@ -18,7 +18,7 @@ const movies = Array.from({ length: 14 }, (_, i) => mk(`m${i}`, ['Starfall', 'Th
 movies[1].UserData = { PlaybackPositionTicks: 12 * 1e7, PlayedPercentage: 30, Played: false };
 const series = mk('s1', 'Orbit Station', 'Series', { Status: 'Continuing', RunTimeTicks: 0, UserData: { UnplayedItemCount: 5 } });
 const season = { Id: 'se1', Name: 'Season 1', Type: 'Season', IndexNumber: 1, SeriesId: 's1', ImageTags: { Primary: 'p' }, UserData: {} };
-const eps = Array.from({ length: 6 }, (_, i) => mk(`e${i}`, `Episode title ${i + 1}`, 'Episode', { SeriesId: 's1', SeriesName: 'Orbit Station', SeasonId: 'se1', SeasonName: 'Season 1', ParentIndexNumber: 1, IndexNumber: i + 1, ImageTags: { Primary: 'p' }, SeriesPrimaryImageTag: 'p', ParentBackdropItemId: 's1', ParentBackdropImageTags: ['b'] }));
+const eps = Array.from({ length: 6 }, (_, i) => mk(`e${i}`, `Episode title ${i + 1}`, 'Episode', { SeriesId: 's1', SeriesName: 'Orbit Station', SeasonId: 'se1', SeasonName: 'Season 1', ParentIndexNumber: 1, IndexNumber: i + 1, ImageTags: { Primary: 'p' }, SeriesPrimaryImageTag: 'p', ParentBackdropItemId: 's1', ParentBackdropImageTags: ['b'], Trickplay: { [`e${i}`]: { 320: { Width: 320, Height: 180, TileWidth: 10, TileHeight: 10, ThumbnailCount: 60, Interval: 10000 } } } }));
 if (!process.env.FRESH) eps[0].UserData = { Played: true, PlayedPercentage: 100 };
 const all = [...movies, series, season, ...eps];
 const views = [{ Id: 'lm', Name: 'Movies', CollectionType: 'movies' }, { Id: 'ls', Name: 'Shows', CollectionType: 'tvshows' }];
@@ -28,6 +28,7 @@ function jellyfin(req, res) {
   if (req.method === 'OPTIONS') return send(res, 204, '');
   if (p === '/System/Info/Public') return send(res, 200, { ServerName: 'Test Jellyfin', Id: 'srv', Version: '10.10.0' });
   if (p === '/Users/AuthenticateByName') return body(req).then((b) => (b.Pw === 'wrong' ? send(res, 401, 'Error processing request.', 'text/plain') : send(res, 200, { AccessToken: 'tok', User: { Id: 'u1', Name: b.Username, Policy: { IsAdministrator: true } } })));
+  if (/\/Trickplay\//.test(p)) return file(res, 'backdrop.jpg', 'image/jpeg');
   if (/\/Images\/Backdrop/.test(p)) return file(res, 'backdrop.jpg', 'image/jpeg');
   if (/\/Images\//.test(p)) return file(res, 'poster.jpg', 'image/jpeg');
   if (/\/Videos\/[^/]+\/stream/.test(p)) {

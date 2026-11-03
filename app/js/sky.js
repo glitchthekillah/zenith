@@ -41,7 +41,12 @@ void main(){
   const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   const U = (x) => gl.getUniformLocation(pr, x);
   // ink, purple, pink and an amber thread; the same colours as the rest of the panel
-  gl.uniform3f(U('cI'), .027, .024, .05); gl.uniform3f(U('cB'), .30, .17, .75); gl.uniform3f(U('cP'), .62, .16, .42); gl.uniform3f(U('cG'), 1.0, .66, .28);
+  // The user can pick their own colours in Settings > Look (kept on this device only)
+  const hex = (h) => { const n = parseInt(String(h).replace('#', ''), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
+  const DEF = ['#07060d', '#4d2bbf', '#9e296b', '#ffa847'];
+  const paint = (c) => { const v = (Array.isArray(c) && c.length === 4 ? c : DEF).map(hex); ['cI', 'cB', 'cP', 'cG'].forEach((k, i) => gl.uniform3f(U(k), ...v[i])); };
+  let saved = null; try { saved = JSON.parse(localStorage.getItem('zenith') || '{}').look?.colors; } catch {}
+  paint(saved);
   // Every load starts somewhere new: offset, turn, zoom, where the light sits and where the bright middle is
   const R = (lo, hi) => lo + Math.random() * (hi - lo);
   gl.uniform2f(U('o'), R(-60, 60), R(-60, 60)); gl.uniform1f(U('a'), R(0, Math.PI * 2)); gl.uniform1f(U('k'), R(.8, 1.25));
@@ -67,6 +72,7 @@ void main(){
     if (!still()) kick();
   }
   function kick() { if (!run) { run = true; requestAnimationFrame(draw); } }
+  window.zenithSky = { set(c) { paint(c); gl.uniform2f(ur, cv.width, cv.height); gl.drawArrays(gl.TRIANGLES, 0, 3); kick(); } };
   document.addEventListener('visibilitychange', kick);
   new MutationObserver(kick).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   kick();

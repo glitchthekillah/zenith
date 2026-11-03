@@ -11,7 +11,10 @@ const defaults = {
   servers: { jellyfin: null, kavita: null, seerr: null, ask: null }, // { url, token, userId, name, ... }
   playback: { directPlay: true, maxBitrate: 0, autoplayNext: true, skipIntro: true, subtitles: 'auto', subtitleSize: 100, volume: 1, rate: 1, audioLang: '', subLang: '' },
   reader: { mode: 'paged', direction: 'ltr', fit: 'height', bookFont: 19, bookTheme: 'dark' },
-  app: { discord: true, notify: true, miniOnBlur: false, volumeCovers: true, episodePreviews: true, startPage: 'home' },
+  app: { covers: true, discord: true, notify: true, miniOnBlur: false, startPage: 'home' },
+  // Only on this device: never sent to any server
+  profile: { name: '', avatar: '' },
+  look: { preset: 'zenith', colors: null },
   seen: {}, // request ids we already told the user about
 };
 const merge = (a, b) => { for (const k of Object.keys(b)) { if (b[k] && typeof b[k] === 'object' && !Array.isArray(b[k])) a[k] = merge({ ...(a[k] || {}) }, b[k]); else if (a[k] === undefined) a[k] = b[k]; } return a; };

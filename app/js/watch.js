@@ -4,6 +4,7 @@ import * as jf from './jellyfin.js';
 import * as player from './player.js';
 import * as kv from './kavita.js';
 import * as rq from './requests.js';
+import { avatarHtml } from './avatar.js';
 
 const cache = new Map(); // id -> item, so clicks know what they opened
 const remember = (list) => { for (const it of list || []) cache.set(it.Id, it); return list; };
@@ -50,34 +51,66 @@ export const shelf = (title, html, link = '', wide = false) => html ? `<section 
 route('home', async () => {
   const parts = [];
   const tasks = [];
+  const stats = { resume: 0, next: 0, read: 0, ready: 0 };
+  let resumeTop = null, shuffle = [];
+  const add = (order, html) => { if (html) parts.push({ order, html }); };
   if (jf.ready()) {
     tasks.push((async () => {
       const [resume, next, views] = await Promise.all([jf.resume(20).catch(() => []), jf.nextUp(20).catch(() => []), jf.views().catch(() => [])]);
       remember(resume); remember(next);
+      stats.resume = resume.length; stats.next = next.length; resumeTop = resume[0] || next[0] || null;
       const libs = views.filter((v) => ['movies', 'tvshows', 'boxsets', 'homevideos', 'mixed', undefined].includes(v.CollectionType));
-      const latest = await Promise.all(libs.slice(0, 6).map((v) => jf.latest(v.Id, 18).then((items) => ({ v, items: remember(items) })).catch(() => ({ v, items: [] }))));
+      const [latest, picks, top, because] = await Promise.all([
+        Promise.all(libs.slice(0, 6).map((v) => jf.latest(v.Id, 18).then((items) => ({ v, items: remember(items) })).catch(() => ({ v, items: [] })))),
+        jf.items({ types: 'Movie,Series', sort: 'Random', filters: 'IsUnplayed', limit: 18 }).then((r) => remember(r.Items || [])).catch(() => []),
+        jf.items({ types: 'Movie,Series', sort: 'CommunityRating', order: 'Descending', limit: 18 }).then((r) => remember(r.Items || [])).catch(() => []),
+        (async () => { const seed = resume[0] || next[0]; if (!seed) return null; const id = seed.SeriesId || seed.Id; const items = remember(await jf.similar(id).catch(() => [])); return items.length ? { name: seed.SeriesName || seed.Name, items } : null; })(),
+      ]);
+      shuffle = picks;
       const heroPool = latest.flatMap((x) => x.items).filter((i) => i.BackdropImageTags?.length && i.Overview).slice(0, 6);
-      parts.push({ order: 0, html: hero(heroPool) });
-      parts.push({ order: 1, html: shelf('Continue watching', resume.map((i) => card(i, { wide: true })).join(''), '', true) });
-      parts.push({ order: 2, html: shelf('Next up', next.map((i) => card(i, { wide: true })).join(''), '', true) });
-      latest.forEach((x, n) => parts.push({ order: 3 + n, html: shelf(`New in ${x.v.Name}`, newCards(x.items), `#/library/${x.v.Id}`) }));
+      add(1, hero(heroPool.length ? heroPool : picks.filter((i) => i.BackdropImageTags?.length && i.Overview).slice(0, 6)));
+      add(2, shelf('Continue watching', resume.map((i) => card(i, { wide: true })).join(''), '', true));
+      add(3, libs.length > 1 ? `<section class="row"><div class="row-head"><h3>Your libraries</h3></div><div class="libtiles">${libs.map((v) => `<a class="libtile" href="#/library/${v.Id}">${jf.img(v, 'Primary', 600) ? `<img loading="lazy" src="${esc(jf.img(v, 'Primary', 600))}" alt="">` : ''}<span>${esc(v.Name)}</span></a>`).join('')}</div></section>` : '');
+      add(4, shelf('Next up', next.map((i) => card(i, { wide: true })).join(''), '', true));
+      add(5, shelf('Picked for you', picks.map((i) => card(i)).join('')));
+      add(6, because ? shelf(`Because you watched ${because.name}`, because.items.map((i) => card(i)).join('')) : '');
+      latest.forEach((x, n) => add(7 + n, shelf(`New in ${x.v.Name}`, newCards(x.items), `#/library/${x.v.Id}`)));
+      add(15, shelf('Top rated on your server', top.filter((i) => i.CommunityRating).map((i) => card(i, { badge: i.CommunityRating.toFixed(1) })).join('')));
     })());
   }
   if (kv.ready()) tasks.push((async () => {
-    const deck = await kv.onDeck();
-    parts.push({ order: 20, html: shelf('Keep reading', (deck || []).map(readCard).join(''), '#/read') });
+    const [deck, fresh] = await Promise.all([kv.onDeck(), kv.recent()]);
+    stats.read = (deck || []).length;
+    add(20, shelf('Keep reading', (deck || []).map(readCard).join(''), '#/read'));
+    add(21, shelf('New to read', (fresh || []).map(readCard).join(''), '#/read'));
   })().catch(() => {}));
   if (rq.provider()) tasks.push((async () => {
-    const d = await rq.discover('trending');
-    parts.push({ order: 30, html: shelf('Trending to request', (d.items || []).slice(0, 20).map(requestCard).join(''), '#/request') });
+    const [d, mine] = await Promise.all([rq.discover('trending'), rq.mine().catch(() => [])]);
+    const list = (Array.isArray(mine) ? mine : mine?.items || []).map((x) => ({ ...x, status: x.status || x.state })).slice(0, 20);
+    stats.ready = list.filter((x) => x.status === 'available').length;
+    add(29, shelf('Your requests', list.map(requestCard).join(''), '#/request'));
+    add(30, shelf('Trending to request', (d.items || []).slice(0, 20).map(requestCard).join(''), '#/request'));
   })().catch(() => {}));
   await Promise.all(tasks);
-  const html = parts.sort((a, b) => a.order - b.order).map((p) => p.html).join('');
-  return html || `<div class="empty"><h2>Nothing here yet</h2><p>Connect a server in settings to fill this page.</p><a class="btn gold" href="#/settings">Open settings</a></div>`;
+  if (!parts.length) return `<div class="empty"><h2>Nothing here yet</h2><p>Connect a server in settings to fill this page.</p><a class="btn gold" href="#/settings">Open settings</a></div>`;
+  add(0, greeting(stats, resumeTop, shuffle));
+  return parts.sort((a, b) => a.order - b.order).map((p) => p.html).join('');
 });
+// The top of Home: your picture, a greeting, a few numbers and quick buttons
+function greeting(st, resumeTop, shuffle) {
+  const h = new Date().getHours();
+  const hi = h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  const name = settings.profile?.name || settings.servers.jellyfin?.name || settings.servers.kavita?.name || '';
+  const chips = [[st.resume, 'in progress', '#/home'], [st.next, 'up next', '#/shows'], [st.read, 'to keep reading', '#/read'], [st.ready, st.ready === 1 ? 'request ready' : 'requests ready', '#/request']].filter(([n]) => n);
+  const pick = shuffle.length ? shuffle[Math.floor(Math.random() * shuffle.length)] : null;
+  return `<section class="hello"><a class="hello-pic" href="#/settings" title="Change your picture">${avatarHtml(name || '?')}</a>
+    <div class="hello-text"><span class="kicker">${esc(new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }))}</span><h1>${hi}${name ? `, <em>${esc(name)}</em>` : ''}</h1>
+      ${chips.length ? `<div class="hello-stats">${chips.map(([n, l, href]) => `<a href="${href}"><b>${n}</b>${esc(l)}</a>`).join('')}</div>` : ''}</div>
+    <div class="hello-acts">${resumeTop ? `<button class="btn gold" data-play="${resumeTop.Id}">${icon('play')} Resume ${esc(resumeTop.SeriesName || resumeTop.Name)}</button>` : ''}${pick ? `<button class="btn" data-play="${pick.Type === 'Series' ? pick.Id : pick.Id}" title="${esc(pick.Name)}">${icon('shuffle')} Surprise me</button>` : ''}</div></section>`;
+}
 function hero(list) {
   if (!list.length) return '';
-  const slides = list.map((it, i) => `<div class="hero-slide" data-i="${i}" ${i ? 'hidden' : ''}><img src="${esc(jf.img(it, 'Backdrop', 1600))}" alt=""><div class="hero-in"><span class="kicker">New on ${esc(settings.servers.jellyfin.server || 'your server')}</span><h2>${esc(it.Type === 'Episode' ? it.SeriesName : it.Name)}</h2><div class="meta">${[it.ProductionYear, it.OfficialRating, fmtRuntime(it.RunTimeTicks), it.CommunityRating ? `${it.CommunityRating.toFixed(1)} rating` : ''].filter(Boolean).map(esc).join('<span>·</span>')}</div><p>${esc(it.Overview)}</p><div class="acts"><button class="btn gold big" data-play="${it.SeriesId || it.Id}">${icon('play')} Play</button><a class="btn big" href="#/item/${it.SeriesId || it.Id}">More info</a></div></div></div>`).join('');
+  const slides = list.map((it, i) => `<div class="hero-slide" data-i="${i}" ${i ? 'hidden' : ''}><img src="${esc(jf.img(it, 'Backdrop', 1600))}" alt=""><div class="hero-in"><span class="kicker">New on ${esc(settings.servers.jellyfin.server || 'your server')}</span><h2>${esc(it.Type === 'Episode' ? it.SeriesName : it.Name)}</h2><div class="meta">${[it.ProductionYear, it.OfficialRating, fmtRuntime(it.RunTimeTicks), it.CommunityRating ? `${it.CommunityRating.toFixed(1)} rating` : '', (it.Genres || []).slice(0, 2).join(', ')].filter(Boolean).map(esc).join('<span>·</span>')}</div><p>${esc(it.Overview)}</p><div class="acts"><button class="btn gold big" data-play="${it.SeriesId || it.Id}">${icon('play')} Play</button><a class="btn big" href="#/item/${it.SeriesId || it.Id}">More info</a></div></div></div>`).join('');
   return `<section class="hero" id="hero">${slides}<div class="hero-dots">${list.map((_, i) => `<button data-hero="${i}" class="${i ? '' : 'on'}" aria-label="Slide ${i + 1}"></button>`).join('')}</div></section>`;
 }
 let heroTimer;
@@ -217,27 +250,40 @@ async function seasonsBlock(series, seasonId) {
   const eps = remember(await jf.episodes(series.Id, cur.Id));
   return `<section class="row"><div class="row-head"><h3>Episodes</h3><span style="display:flex;gap:8px">${cur.UserData && !cur.UserData.Played ? `<button class="btn small" data-watched="${cur.Id}">${icon('check')} Mark season watched</button>` : ''}</span></div>
     <div class="chips">${seasons.map((s) => `<a class="chip ${s.Id === cur.Id ? 'on' : ''}" href="#/item/${series.Id}/${s.Id}" style="text-decoration:none">${esc(s.Name)}</a>`).join('')}</div>
-    <div class="episodes ${settings.app.episodePreviews ? 'with-previews' : 'compact'}">${eps.map((e) => `<div class="ep" data-id="${e.Id}">
-      ${settings.app.episodePreviews ? `<button class="card episode-preview" data-play="${e.Id}" aria-label="Play ${esc(e.Name)}"${episodeTrickplay(e) ? ` data-trickplay="${esc(JSON.stringify(episodeTrickplay(e)))}"` : ''}><div class="art">${jf.img(e, 'Thumb', 400) ? `<img loading="lazy" src="${esc(jf.img(e, 'Thumb', 400))}" alt="">` : ''}${e.UserData?.PlayedPercentage ? `<span class="bar"><i style="width:${e.UserData.PlayedPercentage}%"></i></span>` : ''}${e.UserData?.Played ? `<span class="check">${icon('check')}</span>` : ''}<span class="play-over"><span>${icon('play')}</span></span><span class="episode-frames"></span></div></button>` : `<button class="icon-btn" data-play="${e.Id}" aria-label="Play ${esc(e.Name)}">${icon('play')}</button>`}
-      <div class="episode-copy"><h4>${e.IndexNumber ?? ''}. ${esc(e.Name)}</h4><p>${esc(e.Overview || '')}</p><small style="color:var(--dim)">${esc([fmtRuntime(e.RunTimeTicks), e.PremiereDate ? new Date(e.PremiereDate).toLocaleDateString() : ''].filter(Boolean).join(' · '))}</small></div>
+    <div class="episodes ${settings.app.covers ? 'big' : 'compact'}">${eps.map((e) => { const tp = tpInfo(e); return `<div class="ep" data-id="${e.Id}">
+      ${settings.app.covers ? `<button class="card" data-play="${e.Id}" style="cursor:pointer"${tp ? ` data-tp="${esc(JSON.stringify(tp))}"` : ''}><div class="art">${jf.img(e, 'Thumb', 640) ? `<img loading="lazy" src="${esc(jf.img(e, 'Thumb', 640))}" alt="">` : `<span class="ph">${e.IndexNumber ?? ''}</span>`}<span class="tp"></span><span class="num">${e.IndexNumber ?? ''}</span>${e.RunTimeTicks ? `<span class="len">${esc(fmtRuntime(e.RunTimeTicks))}</span>` : ''}${e.UserData?.PlayedPercentage ? `<span class="bar"><i style="width:${e.UserData.PlayedPercentage}%"></i></span>` : ''}${e.UserData?.Played ? `<span class="check">${icon('check')}</span>` : ''}<span class="play-over"><span>${icon('play')}</span></span></div></button>` : `<button class="icon-btn play-sm" data-play="${e.Id}" title="Play">${icon('play')}</button>`}
+      <div><h4>${e.IndexNumber ?? ''}. ${esc(e.Name)}</h4><p>${esc(e.Overview || '')}</p><small style="color:var(--dim)">${esc([fmtRuntime(e.RunTimeTicks), e.PremiereDate ? new Date(e.PremiereDate).toLocaleDateString() : ''].filter(Boolean).join(' · '))}</small></div>
       <div class="acts"><button class="icon-btn ${e.UserData?.Played ? 'on' : ''}" data-watched="${e.Id}" title="Mark watched">${icon('check')}</button>${desktop ? `<button class="icon-btn" data-download="${e.Id}" title="Download">${icon('download')}</button>` : ''}</div>
-    </div>`).join('')}</div></section>`;
+    </div>`; }).join('')}</div></section>`;
 }
-function episodeTrickplay(e) {
-  for (const [source, sizes] of Object.entries(e.Trickplay || {})) {
-    const widths = Object.keys(sizes).map(Number).filter(n => n > 0).sort((a,b) => a-b);
-    const width = widths.find(n => n >= 300) || widths[widths.length - 1];
-    const info = sizes[width];
-    if (!info || ![info.Width,info.Height,info.TileWidth,info.TileHeight,info.ThumbnailCount].every(n => Number.isInteger(n) && n > 0)) continue;
-    return { url: jf.trickplayUrl(e.Id,width,'{sheet}',source), columns:info.TileWidth, rows:info.TileHeight, count:info.ThumbnailCount };
-  }
-  return null;
+// Trickplay frames for the hover preview (Jellyfin 10.9+)
+function tpInfo(e) {
+  const bySource = e.Trickplay && Object.values(e.Trickplay)[0];
+  const src = e.Trickplay && Object.keys(e.Trickplay)[0];
+  if (!bySource) return null;
+  const w = Object.keys(bySource).map(Number).sort((x, y) => x - y).find((x) => x >= 300) || Number(Object.keys(bySource).pop());
+  const i = bySource[w]; if (!i) return null;
+  return { url: jf.trickplayUrl(e.Id, w, '{n}', src), w: i.Width, h: i.Height, cols: i.TileWidth, rows: i.TileHeight, count: i.ThumbnailCount };
 }
-function episodeFrame(tp, frame) {
-  const perSheet = tp.columns * tp.rows, index = frame % perSheet;
-  return { url:tp.url.replace('{sheet}',Math.floor(frame / perSheet)), x:index % tp.columns, y:Math.floor(index / tp.columns) };
-}
-
+let tpTimer = null;
+document.addEventListener('pointerover', (ev) => {
+  const btn = ev.target.closest?.('.episodes.big [data-tp]');
+  if (!btn || btn.contains(ev.relatedTarget)) return;
+  const t = JSON.parse(btn.dataset.tp), el = btn.querySelector('.tp'), per = t.cols * t.rows;
+  const steps = 24, frames = Array.from({ length: steps }, (_, k) => Math.floor(((k + 1) / (steps + 1)) * t.count));
+  let k = 0;
+  const show = () => {
+    const n = frames[k++ % steps], sheet = Math.floor(n / per), i = n % per;
+    const scale = btn.clientWidth / t.w;
+    el.style.backgroundImage = `url('${t.url.replace('{n}', sheet)}')`;
+    el.style.backgroundSize = `${t.w * t.cols * scale}px auto`;
+    el.style.backgroundPosition = `-${(i % t.cols) * t.w * scale}px -${Math.floor(i / t.cols) * t.h * scale}px`;
+    btn.classList.add('previewing');
+  };
+  clearInterval(tpTimer);
+  tpTimer = setTimeout(() => { show(); tpTimer = setInterval(show, 650); }, 350);
+  btn.addEventListener('pointerleave', () => { clearTimeout(tpTimer); clearInterval(tpTimer); btn.classList.remove('previewing'); }, { once: true });
+});
 async function boxsetBlock(set) {
   const r = await jf.items({ parentId: set.Id, sort: 'PremiereDate', recursive: false, limit: 100 });
   return `<section class="row"><div class="row-head"><h3>In this collection</h3></div><div class="grid">${remember(r.Items).map((i) => card(i)).join('')}</div></section>`;
@@ -334,44 +380,3 @@ document.addEventListener('click', async (e) => {
 });
 // After playback, refresh the page so progress bars and "Next up" are current
 on('player', ({ open }) => { if (!open && ['home', 'item', 'movies', 'shows', 'library'].includes(location.hash.replace(/^#\/?/, '').split('/')[0] || 'home')) import('./core.js').then((c) => c.render()); });
-
-let previewTimer = null, previewButton = null;
-function stopEpisodePreview() {
-  clearInterval(previewTimer); previewTimer = null;
-  previewButton?.querySelector('.episode-frames')?.classList.remove('active');
-  previewButton = null;
-}
-function startEpisodePreview(button) {
-  if (!button || button === previewButton || !settings.app.episodePreviews || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  stopEpisodePreview();
-  let tp; try { tp = JSON.parse(button.dataset.trickplay || 'null'); } catch { return; }
-  if (!tp) return;
-  previewButton = button;
-  const layer = button.querySelector('.episode-frames');
-  let frame = Math.min(tp.count-1,3), sheet = '', pending = '';
-  const draw = () => {
-    if (!button.isConnected || document.hidden) return stopEpisodePreview();
-    const f = episodeFrame(tp,frame);
-    const paint = () => {
-      if (previewButton !== button) return;
-      layer.style.backgroundImage = 'url("' + f.url.replace(/"/g,'%22') + '")';
-      layer.style.backgroundSize = (tp.columns*100)+'% '+(tp.rows*100)+'%';
-      layer.style.backgroundPosition = (tp.columns>1?f.x/(tp.columns-1)*100:0)+'% '+(tp.rows>1?f.y/(tp.rows-1)*100:0)+'%';
-      layer.classList.add('active'); frame = (frame+1)%tp.count;
-    };
-    if (sheet === f.url) return paint();
-    if (pending === f.url) return;
-    pending = f.url;
-    const image = new Image();
-    image.onload = () => { if (previewButton !== button) return; sheet=f.url;pending='';paint(); };
-    image.onerror = () => { if (previewButton === button) stopEpisodePreview(); };
-    image.src = f.url;
-  };
-  draw();previewTimer=setInterval(draw,650);
-}
-document.addEventListener('pointerover',e=>{const b=e.target.closest('.episode-preview');if(b&&!b.contains(e.relatedTarget))startEpisodePreview(b)});
-document.addEventListener('pointerout',e=>{const b=e.target.closest('.episode-preview');if(b&&b===previewButton&&!b.contains(e.relatedTarget))stopEpisodePreview()});
-document.addEventListener('focusin',e=>startEpisodePreview(e.target.closest('.episode-preview')));
-document.addEventListener('focusout',e=>{if(e.target.closest('.episode-preview')===previewButton)stopEpisodePreview()});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)stopEpisodePreview()});
-window.addEventListener('hashchange',stopEpisodePreview);
