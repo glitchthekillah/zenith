@@ -220,6 +220,8 @@ document.addEventListener('click', (e) => {
 
 export function applyTheme() {
   const t = settings.theme === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : settings.theme;
-  document.documentElement.dataset.theme = t;
+  const root = document.documentElement;
+  if (root.dataset.theme && root.dataset.theme !== t) { root.classList.add('glide'); clearTimeout(applyTheme.t); applyTheme.t = setTimeout(() => root.classList.remove('glide'), 1000); }
+  root.dataset.theme = t;
 }
 matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);

@@ -40,7 +40,7 @@ a{color:inherit}
 #sky2{position:absolute;inset:0;width:100%;height:100%;display:block}
 body.liquid .sky i{display:none}
 body.liquid .sky::after{background:radial-gradient(130% 100% at 50% 35%,transparent 55%,rgba(4,4,9,.55)),url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.05'/%3E%3C/svg%3E")}
-:root[data-theme=light] #sky2{opacity:.18}
+:root[data-theme=light] body.liquid .sky::after{background:radial-gradient(130% 100% at 50% 35%,transparent 55%,rgba(255,255,255,.35))}
 @keyframes au1{to{transform:translate(9vw,6vh) scale(1.12)}}
 @keyframes au2{to{transform:translate(-8vw,8vh) scale(.92)}}
 body.playing .sky i{animation-play-state:paused}
@@ -507,3 +507,18 @@ kbd{min-width:28px;padding:4px 9px;border-radius:8px;border:1px solid var(--line
 .crop-ring{position:absolute;left:40px;top:40px;width:260px;height:260px;border-radius:50%;box-shadow:0 0 0 999px rgba(5,5,10,.62);outline:2px solid rgba(255,255,255,.85);pointer-events:none}
 .crop-zoom{display:flex;align-items:center;gap:12px;max-width:340px;margin:16px auto 0;color:var(--mute);font:600 18px var(--disp)}
 .crop-zoom input{flex:1;accent-color:#ffb547}
+
+/* Theme and colour changes glide instead of snapping */
+html.glide,html.glide *,html.glide *::before,html.glide *::after{transition:background-color .9s cubic-bezier(.65,0,.35,1),color .9s cubic-bezier(.65,0,.35,1),border-color .9s cubic-bezier(.65,0,.35,1),fill .9s,stroke .9s,box-shadow .9s,opacity .9s!important}
+/* Light mode: swap the pale golds for deeper ones so labels stay readable */
+:root[data-theme=light]{--amber:#b45309}
+:root[data-theme=light] .kicker,:root[data-theme=light] .set-group h3,:root[data-theme=light] .set-tabs button.on .i,:root[data-theme=light] .lp .pct{color:#b45309}
+:root[data-theme=light] .vol:hover b{color:#9a3412}
+:root[data-theme=light] .set-tabs button.on{background:linear-gradient(90deg,rgba(245,158,11,.18),rgba(236,72,153,.12));box-shadow:inset 0 0 0 1px rgba(180,83,9,.3)}
+:root[data-theme=light] .theme-card.on,:root[data-theme=light] .pal.on{border-color:#d97706;box-shadow:0 0 0 3px rgba(217,119,6,.18)}
+:root[data-theme=light] .hello-pic img,:root[data-theme=light] .hello-pic span,:root[data-theme=light] .profile-pic img,:root[data-theme=light] .profile-pic span,:root[data-theme=light] .profile-pic .av-crop,:root[data-theme=light] .hello-pic .av-crop{background:#fff;border-color:#fff;color:#b45309}
+:root[data-theme=light] .hello-stats a{background:rgba(255,255,255,.55)}
+:root[data-theme=light] .hello{background:linear-gradient(120deg,rgba(255,255,255,.75),rgba(255,255,255,.45))}
+:root[data-theme=light] kbd{background:#fff}
+:root[data-theme=light] .set-card,:root[data-theme=light] .set-tabs,:root[data-theme=light] .profile-card{box-shadow:0 10px 30px -18px rgba(40,20,80,.35)}
+:root[data-theme=light] .hero .btn:not(.gold){background:rgba(255,255,255,.16);color:#fff;border-color:rgba(255,255,255,.4)}
