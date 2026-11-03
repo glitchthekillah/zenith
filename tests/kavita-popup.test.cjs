@@ -11,3 +11,12 @@ test('cookie handoff verifies app session before closing the popup and resolving
 
 
 
+
+test('Jellyfin redirect is ignored until the popup returns to authenticated Kavita',async()=>{
+ let handler,w,current='https://zenithkavita.glitchthekillah.com/login',signedIn=false,probes=0,imports=0;
+ class Window{constructor(){w=this;this.closed=false;this.listeners={};this.webContents={getURL:()=>current,executeJavaScript:async()=>{probes++;return signedIn?{cookie:true,username:'glitch',apiKey:'image-test'}:null},session:{cookies:{get:async()=>[{name:'auth',value:'test-cookie'}]}},on:(n,f)=>this.listeners[n]=f,setWindowOpenHandler:()=>{}}}isDestroyed(){return this.closed}close(){this.closed=true;this.listeners.closed?.()}on(n,f){this.listeners[n]=f}loadURL(){}}
+ const c={WINDOW_ICON:'test.ico',URL,BrowserWindow:Window,win:{},probeScript:'test',ipcMain:{handle:(_,f)=>handler=f},setInterval:()=>1,clearInterval(){},http:{importCookies(){imports++},request:async()=>({ok:true,body:JSON.stringify({username:'glitch'})})}};
+ vm.runInNewContext(block,c);const login=handler({},'https://zenithkavita.glitchthekillah.com');await w.listeners['did-finish-load']();assert.equal(w.closed,false);assert.equal(probes,1);
+ current='https://zenithshelfarr.glitchthekillah.com/interaction/test';signedIn=true;await w.listeners['did-finish-load']();assert.equal(probes,1);assert.equal(imports,0);assert.equal(w.closed,false);
+ current='https://zenithkavita.glitchthekillah.com/home';await w.listeners['did-finish-load']();assert.equal((await login).username,'glitch');assert.equal(imports,1);assert.equal(w.closed,true);
+});
