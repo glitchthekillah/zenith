@@ -1,7 +1,20 @@
 // The video player: our own controls, subtitles, audio tracks, quality, speed,
 // chapters, skip intro, next episode, picture in picture and the mini player.
-import { $, esc, icon, fmtTime, settings, save, desktop, toast, emit } from './core.js';
+import { $, esc, icon, fmtTime, settings, save, desktop, toast, emit, http } from './core.js';
 import * as jf from './jellyfin.js';
+import { pickAudio, pickSub, applySubStyle, cueHtml } from './tracks.js';
+
+// Electron can switch audio tracks inside the original file (no server work needed)
+const canSwitchAudio = typeof HTMLMediaElement !== 'undefined' && 'audioTracks' in HTMLMediaElement.prototype;
+// Tracks as listed in the item, before asking the server for a stream
+function listTracks(item) {
+  const st = item.MediaSources?.[0]?.MediaStreams || [];
+  return {
+    audio: st.filter((s) => s.Type === 'Audio').map((s) => ({ index: s.Index, label: s.DisplayTitle || s.Language || '', lang: s.Language || '', isDefault: !!s.IsDefault })),
+    subs: st.filter((s) => s.Type === 'Subtitle').map((s) => ({ index: s.Index, label: s.DisplayTitle || s.Language || '', lang: s.Language || '', forced: !!s.IsForced, isDefault: !!s.IsDefault, textBased: !!s.IsTextSubtitleStream })),
+    defaultAudio: item.MediaSources?.[0]?.DefaultAudioStreamIndex,
+  };
+}
 
 const root = () => $('#player');
 let S = null; // the current session
@@ -17,6 +30,12 @@ export async function play(item, { start, queue = [] } = {}) {
   const full = item.MediaSources ? item : await jf.item(item.Id);
   const resumeAt = start ?? (full.UserData?.PlaybackPositionTicks ? full.UserData.PlaybackPositionTicks / 1e7 : 0);
   S = { item: full, queue, pb: null, hls: null, sub: null, audio: null, quality: settings.playback.maxBitrate, offset: 0, reported: 0, menu: null, segments: [], introShown: false, nextShown: false, startedAt: Date.now() };
+  // Your languages first: English audio when there is any, otherwise English subtitles (Settings > Playback)
+  const tr = listTracks(full);
+  S.audio = pickAudio(tr.audio, tr.defaultAudio);
+  S.sub = pickSub(tr.subs, tr.audio.find((a) => a.index === S.audio));
+  S.subTextOk = S.sub == null || !!tr.subs.find((x) => x.index === S.sub)?.textBased;
+  S.trackKnown = tr.audio.length + tr.subs.length > 0;
   document.body.classList.add('playing');
   build();
   if (!queue.length && full.Type === 'Episode') jf.allEpisodes(full.SeriesId).then((eps) => { if (S?.item.Id === full.Id) { const i = eps.findIndex((e) => e.Id === full.Id); S.queue = eps.slice(i + 1); S.list = eps; } }).catch(() => {});
@@ -31,6 +50,7 @@ function build() {
   const sub = it.Type === 'Episode' ? `S${it.ParentIndexNumber ?? '?'} E${it.IndexNumber ?? '?'} · ${it.Name}` : [it.ProductionYear, it.OfficialRating].filter(Boolean).join(' · ');
   el.hidden = false;
   el.innerHTML = `<video playsinline preload="auto"></video>
+  <div class="pl-subs"><div class="pl-subs-in"></div></div>
   <div class="pl-center"><div class="spinner"></div></div>
   <div class="pl-flash"></div>
   <div class="pl-ui">
@@ -60,7 +80,7 @@ function build() {
   </div>`;
   const v = $('video', el);
   v.volume = settings.playback.volume; v.playbackRate = settings.playback.rate;
-  v.style.setProperty('--sub', settings.playback.subtitleSize + '%');
+  applySubStyle(el);
   S.v = v;
   // Events
   v.addEventListener('timeupdate', tick);
@@ -101,10 +121,19 @@ async function load(at = 0) {
   if (S.pb) jf.stopTranscode(S.pb);
   let pb;
   try {
-    pb = await jf.playback(S.item.Id, { audioIndex: S.audio, subIndex: S.sub != null && !S.subTextOk ? S.sub : undefined, start: at, maxBitrate: S.quality, forceTranscode: S.forceTranscode });
+    pb = await jf.playback(S.item.Id, { audioIndex: S.audio, subIndex: S.sub ?? undefined, burnSub: S.sub != null && !S.subTextOk, clientAudio: canSwitchAudio, start: at, maxBitrate: S.quality, forceTranscode: S.forceTranscode });
   } catch (e) { return fail(e); }
   if (!S) return;
   S.pb = pb;
+  // The item didn't list its tracks: choose now from what the server sent
+  if (!S.trackKnown) {
+    S.trackKnown = true;
+    const a = pickAudio(pb.audio, pb.defaultAudio);
+    S.sub = pickSub(pb.subtitles, pb.audio.find((x) => x.index === a));
+    S.subTextOk = S.sub == null || !!pb.subtitles.find((x) => x.index === S.sub)?.textBased;
+    const was = S.audio; S.audio = a;
+    if ((a !== (was ?? pb.defaultAudio) && (pb.hls || !canSwitchAudio)) || !S.subTextOk) return load(at);
+  }
   // A converted stream starts at the requested time; a direct file starts at 0
   S.offset = pb.hls ? at : 0;
   if (S.audio == null) S.audio = pb.defaultAudio ?? pb.audio[0]?.index ?? null;
@@ -117,7 +146,7 @@ async function load(at = 0) {
     } else v.src = pb.url; // Safari plays HLS natively
   } else {
     v.src = pb.url;
-    if (at) v.addEventListener('loadedmetadata', () => { v.currentTime = at; }, { once: true });
+    v.addEventListener('loadedmetadata', () => { if (at) v.currentTime = at; pickFileAudio(); }, { once: true });
   }
   v.play().catch(() => paintPlay());
   applySubtitles();
@@ -127,10 +156,19 @@ async function load(at = 0) {
   discord();
 }
 
-// Subtitles: text tracks load as <track>; image subtitles need the server to burn them in
+// Original file playing: turn on the chosen audio track inside it
+function pickFileAudio() {
+  const v = S?.v; if (!v?.audioTracks || !S.pb || S.pb.hls) return;
+  const k = S.pb.audio.findIndex((a) => a.index === S.audio);
+  if (k < 0 || k >= v.audioTracks.length) return;
+  for (let i = 0; i < v.audioTracks.length; i++) v.audioTracks[i].enabled = i === k;
+}
+// Subtitles: text tracks load as <track> and are drawn by us (so they can be styled);
+// image subtitles need the server to burn them in
 function applySubtitles() {
   const v = S.v;
   for (const t of [...v.querySelectorAll('track')]) t.remove();
+  const box = $('.pl-subs-in', root()); if (box) box.innerHTML = '';
   const pb = S.pb;
   if (S.sub === undefined) {
     // First load: pick from settings (auto = server default, or forced tracks)
@@ -143,10 +181,19 @@ function applySubtitles() {
   if (!s.textBased) { if (!S.subTextOk) { S.subTextOk = false; } return; }
   const tr = document.createElement('track');
   tr.kind = 'subtitles'; tr.label = s.label; tr.srclang = s.lang || 'en'; tr.default = true;
-  tr.src = s.url + (S.offset ? `&StartPositionTicks=${Math.round(S.offset * 1e7)}` : '');
+  // Fetched through the app (servers rarely allow cross-site subtitle loads), then handed to the video
+  const want = S.sub;
+  http(s.url + (S.offset ? `&StartPositionTicks=${Math.round(S.offset * 1e7)}` : ''), { headers: { Accept: 'text/vtt,*/*' } }).then((text) => {
+    if (!S || S.sub !== want || typeof text !== 'string') return;
+    if (S.subUrl) URL.revokeObjectURL(S.subUrl);
+    S.subUrl = URL.createObjectURL(new Blob([text], { type: 'text/vtt' }));
+    tr.src = S.subUrl;
+  }).catch(() => toast("Couldn't load those subtitles.", 'bad'));
   v.append(tr);
-  tr.addEventListener('load', () => { tr.track.mode = 'showing'; });
-  setTimeout(() => { if (tr.track) tr.track.mode = 'showing'; }, 50);
+  const paint = () => { const cues = [...(tr.track.activeCues || [])]; box.innerHTML = cues.map((c) => `<span>${cueHtml(c.text)}</span>`).join('<br>'); };
+  const hide = () => { tr.track.mode = 'hidden'; };
+  tr.addEventListener('load', hide); setTimeout(hide, 50);
+  tr.track.addEventListener('cuechange', paint);
 }
 
 const pos = () => (S ? S.offset + (S.v.currentTime || 0) : 0);
@@ -318,7 +365,7 @@ function menu(kind) {
   const m = $('.pl-menu', el);
   m.querySelector('.on')?.scrollIntoView({ block: 'center' });
   const size = $('[data-subsize]', m);
-  if (size) size.oninput = () => { settings.playback.subtitleSize = Number(size.value); save(); S.v.style.setProperty('--sub', size.value + '%'); size.nextElementSibling.textContent = size.value + '%'; };
+  if (size) size.oninput = () => { settings.playback.subtitleSize = Number(size.value); save(); applySubStyle(root()); size.nextElementSibling.textContent = size.value + '%'; };
 }
 async function onClick(e) {
   const b = e.target.closest('button'); if (!b || !S) return;
@@ -343,12 +390,16 @@ async function onClick(e) {
     const idx = b.dataset.sub === 'off' ? null : Number(b.dataset.sub);
     const s = S.pb.subtitles.find((x) => x.index === idx);
     S.sub = idx; S.menu = null; $('.pl-menu', root())?.remove();
-    if (s) { settings.playback.subLang = s.lang; save(); }
     if (s && !s.textBased) { S.subTextOk = false; return load(pos()); } // picture subtitles: the server draws them in
     if (S.pb.hls && S.subTextOk === false) { S.subTextOk = true; return load(pos()); }
     applySubtitles(); paintButtons(); return;
   }
-  if (b.dataset.audio != null) { S.audio = Number(b.dataset.audio); const a = S.pb.audio.find((x) => x.index === S.audio); if (a) { settings.playback.audioLang = a.lang; save(); } S.menu = null; $('.pl-menu', root())?.remove(); S.forceTranscode = S.audio !== (S.pb.defaultAudio ?? S.audio); return load(pos()); }
+  if (b.dataset.audio != null) {
+    S.audio = Number(b.dataset.audio); S.menu = null; $('.pl-menu', root())?.remove();
+    // Original file and the player can switch tracks itself: instant, no server work
+    if (!S.pb.hls && canSwitchAudio && S.v.audioTracks?.length > 1) { pickFileAudio(); paintButtons(); return; }
+    return load(pos());
+  }
   if (b.dataset.q != null) { S.quality = Number(b.dataset.q); S.forceTranscode = S.quality > 0; S.menu = null; $('.pl-menu', root())?.remove(); toast(S.quality ? 'Changing quality...' : 'Back to the original file'); return load(pos()); }
   if (b.dataset.rate) { S.v.playbackRate = Number(b.dataset.rate); settings.playback.rate = S.v.playbackRate; save(); S.menu = null; $('.pl-menu', root())?.remove(); flash(`${S.v.playbackRate}x`); return; }
   if (b.dataset.ep) { const list = S.list; const i = list.findIndex((x) => x.Id === b.dataset.ep); await play(list[i], { start: 0, queue: list.slice(i + 1) }); S.list = list; }

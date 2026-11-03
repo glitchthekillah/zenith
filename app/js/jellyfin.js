@@ -11,10 +11,7 @@ export const ready = () => !!S()?.token;
 export async function publicInfo(url) { return http(url + '/System/Info/Public'); }
 export async function signIn(url, username, password) {
   const info = await publicInfo(url).catch(() => { throw new Error("That doesn't look like a Jellyfin server. Check the address."); });
-  const r = await http(url + '/Users/AuthenticateByName', { method: 'POST', headers: { Authorization: authHeader() }, body: { Username: username, Pw: password } }).catch((error) => {
-    if (error.status === 401) error.message = 'Jellyfin did not accept that username or password.';
-    throw error;
-  });
+  const r = await http(url + '/Users/AuthenticateByName', { method: 'POST', headers: { Authorization: authHeader() }, body: { Username: username, Pw: password } }).catch((error) => { if (error.status === 401) error.message = 'Jellyfin did not accept that username or password.'; throw error; });
   settings.servers.jellyfin = { url, token: r.AccessToken, userId: r.User.Id, name: r.User.Name, server: info.ServerName, admin: !!r.User.Policy?.IsAdministrator, serverId: info.Id };
   save();
   return settings.servers.jellyfin;
@@ -40,7 +37,7 @@ const FIELDS = 'PrimaryImageAspectRatio,Overview,Genres,CommunityRating,Official
 const U = () => `/Users/${S().userId}`;
 export const views = () => api(`${U()}/Views`).then((r) => r.Items || []);
 export const resume = (limit = 16) => api(`${U()}/Items/Resume?Limit=${limit}&MediaTypes=Video&Fields=${FIELDS}&EnableImageTypes=Primary,Backdrop,Thumb`).then((r) => r.Items || []);
-export const nextUp = (limit = 16, seriesId = '') => api(`/Shows/NextUp?UserId=${S().userId}&Limit=${limit}&Fields=${FIELDS}${seriesId ? `&SeriesId=${seriesId}` : ''}&EnableResumable=false`).then((r) => r.Items || []);
+export const nextUp = (limit = 16, seriesId = '') => api(`/Shows/NextUp?UserId=${S().userId}&Limit=${limit}&Fields=${FIELDS}${seriesId ? `&SeriesId=${seriesId}` : ''}&EnableResumable=false&EnableRewatching=${settings.app.rewatch !== false}`).then((r) => r.Items || []);
 export const latest = (parentId, limit = 18) => api(`${U()}/Items/Latest?ParentId=${parentId}&Limit=${limit}&Fields=${FIELDS}&GroupItems=true`);
 export const item = (id) => api(`${U()}/Items/${id}?Fields=${FIELDS},People,MediaSources,MediaStreams,Chapters,Studios,Taglines,ExternalUrls,RemoteTrailers,Trickplay`);
 export const similar = (id) => api(`/Items/${id}/Similar?UserId=${S().userId}&Limit=12&Fields=${FIELDS}`).then((r) => r.Items || []);
@@ -111,13 +108,14 @@ function deviceProfile(maxBitrate) {
   };
 }
 // Returns { url, hls, source, playSessionId, method, subtitles[], audio[] }
-export async function playback(id, { audioIndex, subIndex, start = 0, maxBitrate, forceTranscode = false, sourceId } = {}) {
+// clientAudio: the player can switch audio tracks itself, so a non-default track can still play the original file
+export async function playback(id, { audioIndex, subIndex, start = 0, maxBitrate, forceTranscode = false, sourceId, clientAudio = false, burnSub = false } = {}) {
   const p = settings.playback;
   const bitrate = maxBitrate ?? p.maxBitrate;
   const body = {
     UserId: S().userId, DeviceProfile: deviceProfile(bitrate), StartTimeTicks: Math.round(start * 1e7), AutoOpenLiveStream: true, MediaSourceId: sourceId || undefined,
     EnableDirectPlay: !forceTranscode && p.directPlay, EnableDirectStream: !forceTranscode, EnableTranscoding: true, AllowVideoStreamCopy: !forceTranscode, AllowAudioStreamCopy: !forceTranscode,
-    ...(audioIndex != null ? { AudioStreamIndex: audioIndex } : {}), ...(subIndex != null ? { SubtitleStreamIndex: subIndex } : {}), ...(bitrate ? { MaxStreamingBitrate: bitrate } : {}),
+    ...(audioIndex != null ? { AudioStreamIndex: audioIndex } : {}), ...(subIndex != null && burnSub ? { SubtitleStreamIndex: subIndex } : {}), ...(bitrate ? { MaxStreamingBitrate: bitrate } : {}),
   };
   const info = await api(`/Items/${id}/PlaybackInfo?UserId=${S().userId}`, { method: 'POST', body });
   if (info.ErrorCode) throw new Error(info.ErrorCode === 'NotAllowed' ? "You're not allowed to play this." : `The server can't play this (${info.ErrorCode}).`);
@@ -125,10 +123,11 @@ export async function playback(id, { audioIndex, subIndex, start = 0, maxBitrate
   if (!src) throw new Error('This item has no playable file.');
   const base = S().url, token = S().token;
   let url, hls = false, method;
-  if (src.SupportsDirectPlay && p.directPlay && !forceTranscode && audioIndex == null) {
+  const audioOk = audioIndex == null || clientAudio || audioIndex === src.DefaultAudioStreamIndex;
+  if (src.SupportsDirectPlay && p.directPlay && !forceTranscode && audioOk && !burnSub) {
     method = 'Direct play';
     url = `${base}/Videos/${id}/stream?static=true&MediaSourceId=${src.Id}&PlaySessionId=${info.PlaySessionId}&api_key=${token}&DeviceId=${deviceId}`;
-  } else if (src.SupportsDirectStream && !forceTranscode && audioIndex == null) {
+  } else if (src.SupportsDirectStream && !forceTranscode && audioOk && !burnSub) {
     method = 'Direct stream';
     url = `${base}/Videos/${id}/stream.${src.Container}?static=true&MediaSourceId=${src.Id}&PlaySessionId=${info.PlaySessionId}&api_key=${token}&DeviceId=${deviceId}`;
   } else if (src.TranscodingUrl) {

@@ -1,5 +1,5 @@
 // Starts the app: title bar, top bar, routes and global shortcuts.
-import { $, $$, esc, icon, render, go, current, settings, desktop, on, toast } from './core.js';
+import { $, $$, esc, icon, render, go, current, settings, save, desktop, on, toast } from './core.js';
 import * as jf from './jellyfin.js';
 import * as kv from './kavita.js';
 import * as rq from './requests.js';
@@ -8,9 +8,11 @@ import './read.js';
 import './request.js';
 import { applyTheme, applySky } from './settings.js';
 import { loadAvatar, avatarHtml } from './avatar.js';
+import { migrate, migrateStyle } from './tracks.js';
 import * as player from './player.js';
 
 applyTheme(); applySky();
+migrate(save); migrateStyle(save);
 loadAvatar().then(() => { if (!$('#top').hidden) topBar(); });
 
 // Desktop: our own title bar and window buttons

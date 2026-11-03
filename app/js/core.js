@@ -9,9 +9,9 @@ const KEY = 'zenith';
 const defaults = {
   theme: 'dark', accent: '#e8a33d',
   servers: { jellyfin: null, kavita: null, seerr: null, ask: null }, // { url, token, userId, name, ... }
-  playback: { directPlay: true, maxBitrate: 0, autoplayNext: true, skipIntro: true, subtitles: 'auto', subtitleSize: 100, volume: 1, rate: 1, audioLang: '', subLang: '' },
+  playback: { directPlay: true, maxBitrate: 0, autoplayNext: true, skipIntro: true, subtitles: 'smart', subtitleSize: 100, subPreset: 'zenith', subColor: '#ffffff', subOpacity: 100, subFont: 'sans', subWeight: 600, subEdge: 'shadow', subBg: 'line', subBgColor: '#000000', subBgOpacity: 55, subPos: 6, sv: 1, volume: 1, rate: 1, audioLang: 'eng', subLang: 'eng' },
   reader: { mode: 'paged', direction: 'ltr', fit: 'height', bookFont: 19, bookTheme: 'dark' },
-  app: { covers: true, discord: true, notify: true, miniOnBlur: false, startPage: 'home' },
+  app: { covers: true, rewatch: true, discord: true, notify: true, miniOnBlur: false, startPage: 'home' },
   // Only on this device: never sent to any server
   profile: { name: '', avatar: '' },
   look: { preset: 'zenith', colors: null },

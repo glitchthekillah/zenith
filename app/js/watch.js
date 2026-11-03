@@ -335,8 +335,17 @@ export async function startEpisode(seriesId) {
   const list = eps.length ? eps : await jf.allEpisodes(seriesId);
   list.sort((a, b) => (a.ParentIndexNumber ?? 0) - (b.ParentIndexNumber ?? 0) || (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0));
   remember(list);
-  const partway = list.filter((e) => e.UserData?.PlaybackPositionTicks > 0 && !e.UserData?.Played);
-  if (partway.length) return partway.sort((a, b) => Date.parse(b.UserData.LastPlayedDate || 0) - Date.parse(a.UserData.LastPlayedDate || 0))[0];
+  const when = (e) => Date.parse(e.UserData?.LastPlayedDate || 0) || 0;
+  const partway = list.filter((e) => e.UserData?.PlaybackPositionTicks > 0 && !e.UserData?.Played).sort((a, b) => when(b) - when(a))[0];
+  // Rewatching: carry on from the episode you finished most recently, even if you've seen later ones
+  if (settings.app.rewatch !== false) {
+    const recent = list.filter((e) => e.UserData?.Played && when(e)).sort((a, b) => when(b) - when(a))[0];
+    if (recent && (!partway || when(recent) > when(partway))) {
+      const next = list[list.indexOf(recent) + 1];
+      if (next) return next;
+    }
+  }
+  if (partway) return partway;
   let last = -1;
   list.forEach((e, i) => { if (e.UserData?.Played) last = i; });
   if (last === -1) return list[0] ? { ...list[0], fresh: true } : null;

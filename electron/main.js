@@ -22,6 +22,8 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: t
 if (process.platform === 'win32') app.setAppUserModelId('com.glitch.zenith');
 if (!app.requestSingleInstanceLock()) app.quit();
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport');
+// Enable switching audio tracks in direct-play files.
+app.commandLine.appendSwitch('enable-blink-features', 'AudioVideoTracks');
 if (process.platform === 'linux') {
   // Keep audio in the window's process so Discord can capture its playback.
   const disabled = new Set(app.commandLine.getSwitchValue('disable-features').split(',').filter(Boolean));

@@ -5,6 +5,7 @@ import * as kv from './kavita.js';
 import * as seerr from './seerr.js';
 import * as rq from './requests.js';
 import { avatarHtml, hasAvatar, pickAvatar, clearAvatar } from './avatar.js';
+import { LANGS, SUB_COLORS, SUB_BG_COLORS, SUB_BGS, SUB_EDGES, SUB_FONTS, SUB_WEIGHTS, SUB_PRESETS, subDefaults, applySubStyle } from './tracks.js';
 
 // Background palettes: ink (the darkest), two clouds and the light thread
 export const PALETTES = [
@@ -86,6 +87,11 @@ document.addEventListener('click', async (e) => {
   const pp = e.target.closest('[data-sky-preset]');
   if (pp) { settings.look = { preset: pp.dataset.skyPreset, colors: null }; save(); applySky(); $$('[data-sky-preset]').forEach((b) => b.classList.toggle('on', b === pp)); skyInputs(); }
   if (e.target.closest('[data-avatar-clear]')) return clearAvatar();
+  const sp = e.target.closest('[data-subpick]');
+  if (sp) { const [k, v] = sp.dataset.subpick.split(/:(.*)/); settings.playback[k] = k === 'subWeight' ? Number(v) : v; settings.playback.subPreset = 'custom'; $$('[data-subpreset]').forEach((b) => b.classList.remove('on')); save(); sp.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === sp)); const pv = $('#sub-preview'); if (pv) applySubStyle(pv); return; }
+  if (e.target.closest('[data-subreset]')) { Object.assign(settings.playback, subDefaults); save(); render(); return; }
+  const pr = e.target.closest('[data-subpreset]');
+  if (pr) { Object.assign(settings.playback, SUB_PRESETS.find((x) => x[0] === pr.dataset.subpreset)[2]); save(); render(); return; }
   const tb = e.target.closest('[data-tab]');
   if (tb) { setTab = tb.dataset.tab; $$('[data-tab]').forEach((b) => b.classList.toggle('on', b === tb)); $$('[data-pane]').forEach((x) => { x.hidden = x.dataset.pane !== setTab; }); return; }
   const t = e.target.closest('[data-theme-pick]'); if (t) { settings.theme = t.dataset.themePick; save(); applyTheme(); $$('[data-theme-pick]').forEach((b) => b.classList.toggle('on', b === t)); }
@@ -95,6 +101,10 @@ document.addEventListener('click', async (e) => {
 });
 const skyInputs = () => { const c = skyColors(); $$('[data-sky]').forEach((i) => { i.value = c[Number(i.dataset.sky)]; }); };
 document.addEventListener('input', (e) => {
+  const ss = e.target.closest('[data-substyle]');
+  const sc = e.target.closest('[data-subcolor]');
+  if (sc) { settings.playback.subColor = sc.value; settings.playback.subPreset = 'custom'; sc.parentElement.parentElement.querySelectorAll('.sub-swatch').forEach((x) => x.classList.toggle('on', x === sc.parentElement)); save(); const pv = $('#sub-preview'); if (pv) applySubStyle(pv); return; }
+  if (ss) { settings.playback[ss.dataset.substyle] = Number(ss.value); settings.playback.subPreset = 'custom'; $$('[data-subpreset]').forEach((b) => b.classList.remove('on')); save(); ss.nextElementSibling.textContent = ss.value + '%'; const pv = $('#sub-preview'); if (pv) applySubStyle(pv); return; }
   const i = e.target.closest('[data-sky]'); if (!i) return;
   const c = [...skyColors()]; c[Number(i.dataset.sky)] = i.value;
   settings.look = { preset: 'custom', colors: c }; applySky(); $$('[data-sky-preset]').forEach((b) => b.classList.remove('on'));
@@ -108,6 +118,7 @@ document.addEventListener('change', async (e) => {
   settings[group][key] = s.type === 'checkbox' ? s.checked : s.type === 'number' || s.dataset.num ? Number(s.value) : s.value;
   save(); toast('Saved', 'ok');
   if (group === 'profile') emit('servers');
+  if (s.dataset.set === 'playback.subtitles') render();
 });
 function connectDialog(kind) {
   const [k, name, desc, user] = SERVERS.find((s) => s[0] === kind);
@@ -140,7 +151,11 @@ route('settings', async (sub) => {
   const info = desktop ? await desktop.info() : null;
   const intro = sub === 'after-first' ? `<div class="panel" style="margin-bottom:16px;border-color:rgba(255,181,71,.45)"><h2>You're in</h2><p>Want books, manga and requests too? Connect Kavita and a request site below with the same kind of sign-in. Or skip and <a href="#/home">start watching</a>.</p></div>` : '';
   const sw = (key, label, small) => { const [g, k] = key.split('.'); return `<label class="set-row"><div><b>${label}</b>${small ? `<small>${small}</small>` : ''}</div><span class="switch"><input type="checkbox" data-set="${key}" ${settings[g][k] ? 'checked' : ''}><span></span></span></label>`; };
-  const tabs = [['profile', 'user', 'Profile'], ['look', 'sun', 'Appearance'], ['servers', 'link', 'Servers'], ['playback', 'play', 'Playback'], ['general', 'grid', 'General'], ['about', 'settings', 'About']];
+  const range = (label, key, min, max, step) => `<label class="set-row"><div><b>${label}</b></div><span class="range-row"><input type="range" min="${min}" max="${max}" step="${step}" value="${p[key]}" data-substyle="${key}"><output>${p[key]}%</output></span></label>`;
+  const chips = (label, key, list) => `<div class="set-row"><div><b>${label}</b></div><span class="sub-chips">${list.map(([v, n, f]) => `<button class="chip ${String(p[key]) === String(v) ? 'on' : ''}" data-subpick="${key}:${v}"${f ? ` style="font-family:${esc(f)}"` : ''}>${n}</button>`).join('')}</span></div>`;
+  const seg = (label, key, list) => `<div class="set-row"><div><b>${label}</b></div><span class="seg">${list.map(([v, n, f]) => `<button class="${String(p[key]) === String(v) ? 'on' : ''}" data-subpick="${key}:${v}"${f ? ` style="font-family:${esc(f)}"` : ''}>${n}</button>`).join('')}</span></div>`;
+  const presetVars = (o) => { const d = document.createElement('div'); const keep = { ...settings.playback }; Object.assign(settings.playback, o); applySubStyle(d); Object.assign(settings.playback, keep); return d.getAttribute('style') || ''; };
+  const tabs = [['profile', 'user', 'Profile'], ['look', 'sun', 'Appearance'], ['servers', 'link', 'Servers'], ['playback', 'play', 'Playback'], ['subs', 'subs', 'Audio & subtitles'], ['general', 'grid', 'General'], ['about', 'settings', 'About']];
   if (sub === 'after-first') setTab = 'servers'; else if (tabs.some((t) => t[0] === sub)) setTab = sub;
   const pane = (k, title, desc, body) => `<section class="set-pane" data-pane="${k}" ${setTab === k ? '' : 'hidden'}><header><h2>${title}</h2><p>${desc}</p></header>${body}</section>`;
   const group = (title, body) => `<div class="set-group">${title ? `<h3>${title}</h3>` : ''}<div class="set-card">${body}</div></div>`;
@@ -160,12 +175,34 @@ route('settings', async (sub) => {
         <div class="sky-picks">${['Base', 'Cloud one', 'Cloud two', 'Light'].map((l, i) => `<label><input type="color" data-sky="${i}" value="${skyColors()[i]}">${l}</label>`).join('')}</div></div>`)}`)}
     ${pane('servers', 'Servers', 'Everything stays between this app and your servers.', group('', `${SERVERS.map(([k, name, desc]) => { const s = settings.servers[k]; return `<div class="set-row"><div><b>${esc(name)}</b><small>${connected(k) ? esc(`${s.name || 'Signed in'} on ${new URL(s.url).host}`) : esc(desc)}</small></div>${connected(k) ? `<button class="btn small" data-disconnect="${k}">Sign out</button>` : `<button class="btn small gold" data-add="${k}">Connect</button>`}</div>`; }).join('')}
       ${rq.provider() === 'ask' && seerr.ready() ? '<small class="hint">Both request servers are connected: the request site is used, since it covers books and manga too.</small>' : ''}`))}
-    ${pane('playback', 'Playback', 'How videos play.', group('', `${sw('playback.directPlay', 'Play the original file when possible', 'Best quality and no work for the server. Turn off if videos stutter.')}
+    ${pane('playback', 'Playback', 'How videos play.', `
+      ${group('Video', `${sw('playback.directPlay', 'Play the original file when possible', 'Best quality and no work for the server. Turn off if videos stutter.')}
       <label class="set-row"><div><b>Default quality</b><small>Lower uses less internet.</small></div><select data-set="playback.maxBitrate" data-num="1">${[[0, 'Original'], [40e6, '1080p high'], [20e6, '1080p'], [8e6, '720p'], [4e6, '480p'], [1.5e6, 'Data saver']].map(([v, l]) => `<option value="${v}" ${p.maxBitrate === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label class="set-row"><div><b>Subtitles</b></div><select data-set="playback.subtitles">${[['auto', 'Only when needed'], ['always', 'Always on'], ['off', 'Off']].map(([v, l]) => `<option value="${v}" ${p.subtitles === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       ${sw('playback.autoplayNext', 'Play the next episode automatically')}
-      ${sw('playback.skipIntro', 'Skip intros automatically', 'Needs intro markers on the server (Jellyfin 10.10 or the Intro Skipper plugin).')}`))}
-    ${pane('general', 'General', 'Home, covers and extras.', group('', `${sw('app.covers', 'Covers for each volume and episode', 'Shows every volume cover and an episode preview you can hover to play through. Off is a plain list.')}
+      ${sw('playback.skipIntro', 'Skip intros automatically', 'Needs intro markers on the server (Jellyfin 10.10 or the Intro Skipper plugin).')}`)}
+`)}
+    ${pane('subs', 'Language and subtitles', 'Which audio you hear, when subtitles come on, and how they look.', `
+      ${group('Languages', `<label class="set-row"><div><b>Audio language</b><small>Picked whenever a video has it, dubs included.</small></div><select data-set="playback.audioLang"><option value="default" ${p.audioLang === 'default' ? 'selected' : ''}>The video's default</option>${LANGS.map(([c, n]) => `<option value="${c}" ${p.audioLang === c ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="set-row"><div><b>Subtitles</b><small>${{ smart: "Turns on when the audio isn't in your subtitle language.", always: 'Always on, in your subtitle language.', forced: 'Only signs and lines in other languages.', off: 'Never on unless you turn them on.' }[p.subtitles] || ''}</small></div><select data-set="playback.subtitles">${[['smart', 'When I need them'], ['always', 'Always on'], ['forced', 'Signs and foreign lines only'], ['off', 'Off']].map(([v, l]) => `<option value="${v}" ${p.subtitles === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="set-row"><div><b>Subtitle language</b></div><select data-set="playback.subLang">${LANGS.map(([c, n]) => `<option value="${c}" ${p.subLang === c ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`)}
+      ${group('Presets', `<div class="sub-presets">${SUB_PRESETS.map(([k, l, o]) => `<button class="sub-preset ${p.subPreset === k ? 'on' : ''}" data-subpreset="${k}"><span class="sp-scene" style="${esc(presetVars(o))}"><span class="pl-subs-in"><span>Hello there</span></span></span><span class="sp-name">${l}${p.subPreset === k ? icon('check') : ''}</span></button>`).join('')}</div>`)}
+      ${group('Customize', `<div class="sub-preview" id="sub-preview"><div class="pl-subs"><div class="pl-subs-in"><span>This is how your subtitles will look.</span><br><span><i>Every change shows up here.</i></span></div></div></div>
+        <h4 class="set-sub">Text</h4>
+        ${range('Size', 'subtitleSize', 60, 200, 5)}
+        <div class="set-row"><div><b>Colour</b></div><span class="sub-chips">${SUB_COLORS.map(([c, n]) => `<button class="sub-swatch ${p.subColor === c ? 'on' : ''}" data-subpick="subColor:${c}" title="${n}" style="background:${c}"></button>`).join('')}<label class="sub-swatch custom ${SUB_COLORS.some(([c]) => c === p.subColor) ? '' : 'on'}" title="Any colour"><input type="color" value="${p.subColor}" data-subcolor="subColor" hidden></label></span></div>
+        ${range('Opacity', 'subOpacity', 30, 100, 5)}
+        ${seg('Font', 'subFont', SUB_FONTS)}
+        ${seg('Thickness', 'subWeight', SUB_WEIGHTS)}
+        ${seg('Edge', 'subEdge', SUB_EDGES)}
+        <h4 class="set-sub">Background</h4>
+        ${seg('Style', 'subBg', SUB_BGS)}
+        <div class="set-row"><div><b>Colour</b></div><span class="sub-chips">${SUB_BG_COLORS.map(([c, n]) => `<button class="sub-swatch ${p.subBgColor === c ? 'on' : ''}" data-subpick="subBgColor:${c}" title="${n}" style="background:${c}"></button>`).join('')}</span></div>
+        ${range('Opacity', 'subBgOpacity', 0, 100, 5)}
+        <h4 class="set-sub">Position</h4>
+        ${range('Height from the bottom', 'subPos', 2, 25, 1)}
+        <div class="set-row"><div><b>Start over</b><small>Back to the Zenith preset.</small></div><button class="btn small" data-subreset>Reset</button></div>`)}`)}
+    ${pane('general', 'General', 'Home, covers and extras.', group('', `${sw('app.rewatch', 'Rewatching', 'Next up follows the episode you watched last, not the furthest one. Go back to S1 E1 while you are on S2 E5, and Next up and Home offer S1 E2, not S2 E6.')}
+      ${sw('app.covers', 'Covers for each volume and episode', 'Shows every volume cover and an episode preview you can hover to play through. Off is a plain list.')}
 <label class="set-row"><div><b>Open on</b></div><select data-set="app.startPage">${[['home', 'Home'], ['movies', 'Movies'], ['shows', 'Shows'], ['read', 'Read'], ['request', 'Request']].map(([v, l]) => `<option value="${v}" ${a.startPage === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
 ${sw('app.notify', 'Tell me when my requests are ready')}
       ${desktop ? sw('app.discord', 'Show what I watch on my Discord profile', 'Needs the Discord app open on this computer.') : ''}`))}
@@ -217,6 +254,8 @@ document.addEventListener('click', (e) => {
   if (u.dataset.upd === 'open') desktop.open(u.dataset.url);
   $('#update').hidden = true;
 });
+
+on('rendered', () => { const pv = document.getElementById('sub-preview'); if (pv) applySubStyle(pv); });
 
 export function applyTheme() {
   const t = settings.theme === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : settings.theme;
