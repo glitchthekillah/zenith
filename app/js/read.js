@@ -1,13 +1,16 @@
 // Reading (Kavita): libraries, a series' page, and the reader for manga, comics and books.
-import { $, $$, esc, icon, route, settings, save, toast, desktop, plural, loading } from './core.js';
+import { $, $$, esc, icon, route, settings, save, toast, desktop, plural, loading, groups, splitId } from './core.js';
 import * as kv from './kavita.js';
+import { anilist } from './meta.js';
 import { readCard, shelf, needServer } from './watch.js';
 
 route('read', async (libId) => {
+  if (libId) libId = splitId(libId);
   if (!kv.ready()) return needServer('Kavita');
   const libs = await kv.libraries();
   if (!libId) {
-    const [deck, recent] = await Promise.all([kv.onDeck(), kv.recent()]);
+    const all = async (fn) => (await Promise.all(groups.with('kavita').map((g) => Promise.resolve(groups.run(g, fn)).then((x) => groups.tag(g, x || [])).catch(() => [])))).flat();
+    const [deck, recent] = await Promise.all([all(() => kv.onDeck()), all(() => kv.recent())]);
     return `<div class="page-head"><div><span class="kicker">Read</span><h1>Your shelf</h1></div></div>
       <div class="chips"><a class="chip on" href="#/read" style="text-decoration:none">Home</a>${libs.map((l) => `<a class="chip" href="#/read/${l.id}" style="text-decoration:none">${esc(l.name)}</a>`).join('')}</div>
       ${shelf('Keep reading', (deck || []).map(readCard).join(''))}${shelf('Recently added', (recent || []).map(readCard).join(''))}
@@ -29,19 +32,35 @@ async function fillSeries(libId, page) {
 }
 
 route('series', async (id) => {
+  id = splitId(id);
   if (!kv.ready()) return needServer('Kavita');
   const [s, meta, vols, cont] = await Promise.all([kv.series(id), kv.metadata(id), kv.volumes(id), kv.continuePoint(id)]);
   const pct = s.pages ? Math.round((s.pagesRead / s.pages) * 100) : 0;
   const chapters = vols.flatMap((v) => (v.chapters || []).map((c) => ({ ...c, vol: v })));
   const label = (c) => (c.isSpecial ? c.title || c.range : c.vol.minNumber > 0 && c.vol.name !== '-100000' && (c.number === '-100000' || c.minNumber <= -100000 || c.range === '-100000') ? `Volume ${c.vol.name}` : c.titleName || c.title || `Chapter ${c.range || c.number}`);
-  return `<div class="detail"><div class="backdrop"><img src="${esc(kv.cover(id))}" alt="" style="filter:blur(30px);transform:scale(1.2)"></div>
+  // Banner and missing info from AniList (manga and comics), matched by title
+  const al = s.format === 3 ? null : await anilist(s.name).catch(() => null);
+  const summary = (meta?.summary || '').replace(/<[^>]+>/g, '').trim() || al?.summary || '';
+  const genres = (meta?.genres || []).map((g) => g.title).filter(Boolean).length ? meta.genres.map((g) => g.title) : al?.genres || [];
+  const writers = (meta?.writers || []).map((w) => w.name).filter(Boolean).length ? meta.writers.map((w) => w.name) : al?.authors || [];
+  const volCount = chapters.filter((c) => label(c).startsWith("Volume ")).length;
+  const own = chapters.slice(0, 9).map((c) => (label(c).startsWith('Volume ') ? kv.volumeCover(c.vol.id) : kv.chapterCover(c.id)));
+  const covers = own.length ? Array.from({ length: 9 }, (_, i) => own[i % own.length]) : [kv.cover(id)];
+  const banner = al?.banner
+    ? `<div class="backdrop"><img src="${esc(al.banner)}" alt=""></div>`
+    : `<div class="backdrop collage">${covers.map((u) => `<img src="${esc(u)}" alt="" loading="lazy">`).join('')}</div>`;
+  const facts = [meta?.releaseYear || al?.year || '', al?.status || '', al?.score ? `<span class="star">${icon('star')} ${(al.score / 10).toFixed(1)}</span>` : '', volCount ? plural(volCount, "volume") : plural(chapters.length, 'chapter'), plural(s.pages || 0, 'page')].filter(Boolean);
+  return `<div class="detail">${banner}
   <div class="detail-in"><div class="art"><img src="${esc(kv.cover(id))}" alt=""></div><div>
     <span class="kicker">${esc(s.libraryName || 'Read')}</span><h1>${esc(s.name)}</h1>
-    <div class="facts">${[meta?.releaseYear || '', plural(s.pages || 0, 'page'), pct ? `${pct}% read` : '', (meta?.genres || []).slice(0, 3).map((g) => g.title).join(', '), (meta?.writers || []).slice(0, 2).map((w) => w.name).join(', ')].filter(Boolean).map(esc).join('<span>·</span>')}</div>
-    <p class="overview">${esc((meta?.summary || '').replace(/<[^>]+>/g, ''))}</p>
-    ${pct ? `<div class="progress" style="max-width:420px;margin-bottom:18px"><i style="width:${pct}%"></i></div>` : ''}
+    ${writers.length ? `<p class="tagline">By ${esc(writers.slice(0, 2).join(' and '))}</p>` : ''}
+    <div class="facts">${facts.map((f) => (String(f).startsWith("<") ? f : esc(f))).join('<span>·</span>')}</div>
+    ${genres.length ? `<div class="genre-pills">${genres.slice(0, 6).map((g) => `<span>${esc(g)}</span>`).join('')}</div>` : ''}
+    <p class="overview clamp">${esc(summary) || '<span style="color:var(--mute)">No summary yet.</span>'}</p>
+    ${pct ? `<div class="read-progress"><div class="progress"><i style="width:${pct}%"></i></div><small>${pct}% read</small></div>` : ''}
     <div class="acts">${cont ? `<button class="btn gold big" data-read="${cont.id}" data-series="${id}">${icon('book')} ${pct ? 'Continue' : 'Start reading'}</button>` : ''}
-      <button class="btn big" data-markread="${id}" data-on="${pct >= 100 ? '0' : '1'}">${icon('check')} ${pct >= 100 ? 'Mark unread' : 'Mark as read'}</button></div>
+      <button class="btn big" data-markread="${id}" data-on="${pct >= 100 ? '0' : '1'}">${icon('check')} ${pct >= 100 ? 'Mark unread' : 'Mark as read'}</button>
+      ${al?.url ? `<button class="btn big" data-open="${esc(al.url)}">${icon('link')} AniList</button>` : ''}</div>
   </div></div></div>
   <section class="row"><div class="row-head"><h3>${plural(chapters.length, 'entry', 'entries')}</h3></div>
   ${settings.app.covers ? `<div class="grid vols">${chapters.map((c) => { const isVol = label(c).startsWith('Volume '); const done = c.pages && c.pagesRead >= c.pages; return `<button class="card vol" data-read="${c.id}" data-series="${id}"><div class="art book"><img loading="lazy" src="${esc(isVol ? kv.volumeCover(c.vol.id) : kv.chapterCover(c.id))}" alt="" onerror="if(!this.dataset.f){this.dataset.f=1;this.src='${esc(kv.chapterCover(c.id))}'}"><span class="shine"></span>${c.pagesRead && c.pages ? (done ? `<span class="check">${icon('check')}</span>` : `<span class="bar"><i style="width:${Math.round((c.pagesRead / c.pages) * 100)}%"></i></span>`) : ''}<span class="read-over"><span>${icon('book')}</span></span></div><b>${esc(label(c))}</b><small>${done ? 'Read' : c.pagesRead ? `${Math.round((c.pagesRead / c.pages) * 100)}% read` : plural(c.pages || 0, 'page')}</small></button>`; }).join('')}</div>`

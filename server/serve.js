@@ -15,6 +15,8 @@ const http = require('../shared/http');
 const PORT = Number(process.env.PORT) || 8484;
 const APP_DIR = path.join(__dirname, '..', 'app');
 const HOSTS = String(process.env.ZENITH_HOSTS || '').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean).map((s) => new URL(s).origin);
+// Public info for books and manga (covers, banners, summaries) always allowed
+HOSTS.push('https://graphql.anilist.co');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.ico': 'image/x-icon' };
 
 if (!HOSTS.length) console.warn('ZENITH_HOSTS is empty: set it to your Jellyfin (and Kavita, Seerr, ask site) addresses, separated by commas.');

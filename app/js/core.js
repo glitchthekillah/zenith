@@ -11,7 +11,7 @@ const defaults = {
   servers: { jellyfin: null, kavita: null, seerr: null, ask: null }, // { url, token, userId, name, ... }
   playback: { directPlay: true, maxBitrate: 0, autoplayNext: true, skipIntro: true, subtitles: 'smart', subtitleSize: 100, subPreset: 'zenith', subColor: '#ffffff', subOpacity: 100, subFont: 'sans', subWeight: 600, subEdge: 'shadow', subBg: 'line', subBgColor: '#000000', subBgOpacity: 55, subPos: 6, sv: 1, volume: 1, rate: 1, audioLang: 'eng', subLang: 'eng' },
   reader: { mode: 'paged', direction: 'ltr', fit: 'height', bookFont: 19, bookTheme: 'dark' },
-  app: { covers: true, rewatch: true, discord: true, notify: true, miniOnBlur: false, startPage: 'home' },
+  app: { covers: true, rewatch: true, liveSky: true, discord: true, notify: true, miniOnBlur: false, startPage: 'home' },
   // Only on this device: never sent to any server
   profile: { name: '', avatar: '' },
   look: { preset: 'zenith', colors: null },
@@ -23,10 +23,46 @@ try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
 export const settings = merge(saved, defaults);
 export function save() { try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch {} }
 
+// ── Servers, grouped by whose server they are ─────────────────────────
+// settings.groups = [{ id, name, servers: { jellyfin, kavita, seerr, ask } }]
+// settings.servers always means the group in use right now, so the rest of the app is unchanged.
+const fresh = !Array.isArray(settings.groups) || !settings.groups.length;
+if (fresh) settings.groups = [{ id: 'g1', name: '', servers: { jellyfin: null, kavita: null, seerr: null, ask: null, ...(settings.servers || {}) } }];
+delete settings.servers;
+if (fresh) save();
+let activeId = settings.groups[0].id;
+const byId = (id) => settings.groups.find((g) => g.id === id);
+Object.defineProperty(settings, 'servers', { get: () => (byId(activeId) || settings.groups[0]).servers, enumerable: false, configurable: true });
+const KINDS = ['jellyfin', 'kavita', 'seerr', 'ask'];
+// The two-part site name a service lives on (zenithjelly.glitchthekillah.com -> glitchthekillah.com)
+export const siteOf = (url) => { try { const h = new URL(url).hostname; return /^[\d.]+$|^\[|^localhost$/.test(h) ? h : h.split('.').slice(-2).join('.'); } catch { return ''; } };
+export const groups = {
+  list: () => settings.groups,
+  byId,
+  active: () => byId(activeId) || settings.groups[0],
+  // Switch the group in use. API calls read their server when they start, so a switch only affects later calls.
+  use(id) { if (id && byId(id)) activeId = id; return groups.active(); },
+  with: (kind) => settings.groups.filter((g) => g.servers?.[kind]),
+  // A service from the group in use, or else from the first group that has one
+  srv: (kind) => groups.active().servers?.[kind] || settings.groups.find((g) => g.servers?.[kind])?.servers[kind] || null,
+  // Run fn with group g in use (for fetching from every server) and tag what comes back with the group
+  run(g, fn) { const prev = activeId; activeId = g.id; try { return fn(); } finally { activeId = prev; } },
+  tag: (g, list) => { for (const x of list || []) if (x && typeof x === 'object') x._g = g.id; return list; },
+  nameOf: (g) => g?.name || g?.servers?.jellyfin?.server || siteOf(KINDS.map((k) => g?.servers?.[k]?.url).find(Boolean)).split('.')[0] || 'Server',
+  many: (kind) => settings.groups.filter((g) => g.servers?.[kind]).length > 1,
+  add() { const id = 'g' + Date.now().toString(36); settings.groups.push({ id, name: '', servers: { jellyfin: null, kavita: null, seerr: null, ask: null } }); save(); return id; },
+  remove(id) { settings.groups = settings.groups.filter((g) => g.id !== id); if (!settings.groups.length) groups.add(); if (!byId(activeId)) activeId = settings.groups[0].id; save(); },
+  // Which group a new connection belongs to: the one already using the same site, else the one given
+  home(url, fallbackId) { const site = siteOf(url); return settings.groups.find((g) => KINDS.some((k) => g.servers?.[k]?.url && siteOf(g.servers[k].url) === site)) || byId(fallbackId) || groups.active(); },
+};
+// "ID@group" in links: which server an item lives on
+export const splitId = (raw) => { const [id, g] = String(raw ?? '').split('@'); if (g) groups.use(g); return id; };
+export const gsuf = (x) => (x?._g && settings.groups.length > 1 ? '@' + x._g : '');
+
 // A stable id for this install (servers use it to tell devices apart)
 export const deviceId = (() => { let id = localStorage.getItem('zenith-device'); if (!id) { id = crypto.randomUUID().replace(/-/g, ''); try { localStorage.setItem('zenith-device', id); } catch {} } return id; })();
 const webSession = (() => { let id = sessionStorage.getItem('zenith-web') || localStorage.getItem('zenith-web'); if (!id) { id = crypto.randomUUID().replace(/-/g, ''); try { localStorage.setItem('zenith-web', id); } catch {} } return id; })();
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.5';
 
 // ── Requests to the user's servers ────────────────────────────────────
 // The desktop app makes them itself; the web version goes through its small server.

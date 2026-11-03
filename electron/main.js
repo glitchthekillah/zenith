@@ -22,15 +22,16 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: t
 if (process.platform === 'win32') app.setAppUserModelId('com.glitch.zenith');
 if (!app.requestSingleInstanceLock()) app.quit();
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport');
-// Enable switching audio tracks in direct-play files.
-app.commandLine.appendSwitch('enable-blink-features', 'AudioVideoTracks');
 if (process.platform === 'linux') {
   // Keep audio in the window's process so Discord can capture its playback.
   const disabled = new Set(app.commandLine.getSwitchValue('disable-features').split(',').filter(Boolean));
   disabled.add('AudioServiceOutOfProcess');
   app.commandLine.appendSwitch('disable-features', [...disabled].join(','));
 }
-
+// Lets the player switch between audio tracks in the original file, so English audio still direct plays
+app.commandLine.appendSwitch('enable-blink-features', 'AudioVideoTracks');
+// Use the graphics card even when Chrome is unsure about its driver; without this some PCs draw everything on the processor
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
 
 let win = null;
 let normalBounds = null; // where the window was before the mini player

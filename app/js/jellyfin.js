@@ -1,7 +1,10 @@
 // Jellyfin: sign-in, libraries, items, playback info and progress reports.
 import { http, settings, save, deviceId, VERSION, desktop } from './core.js';
 
-const S = () => settings.servers.jellyfin;
+import { groups } from './core.js';
+const S = () => groups.srv('jellyfin');
+// The server an item came from (lists from every server are tagged with their group)
+const SI = (it) => (it?._g && groups.byId(it._g)?.servers?.jellyfin) || S();
 const CLIENT = desktop ? 'Zenith Desktop' : 'Zenith Web';
 const DEVICE = desktop ? (navigator.userAgentData?.platform || 'Desktop') : 'Browser';
 const authHeader = (token) => `MediaBrowser Client="${CLIENT}", Device="${DEVICE}", DeviceId="${deviceId}", Version="${VERSION}"${token ? `, Token="${token}"` : ''}`;
@@ -65,7 +68,7 @@ export const segments = (id) => api(`/MediaSegments/${id}`).then((r) => r.Items 
 // Images
 export function img(it, type = 'Primary', w = 400) {
   if (!it) return '';
-  const base = S().url;
+  const base = SI(it).url;
   if (type === 'Backdrop') {
     if (it.BackdropImageTags?.length) return `${base}/Items/${it.Id}/Images/Backdrop?tag=${it.BackdropImageTags[0]}&maxWidth=${w}&quality=85`;
     if (it.ParentBackdropImageTags?.length) return `${base}/Items/${it.ParentBackdropItemId}/Images/Backdrop?tag=${it.ParentBackdropImageTags[0]}&maxWidth=${w}&quality=85`;
@@ -81,7 +84,7 @@ export function img(it, type = 'Primary', w = 400) {
   if (it.AlbumPrimaryImageTag) return `${base}/Items/${it.AlbumId}/Images/Primary?tag=${it.AlbumPrimaryImageTag}&maxWidth=${w}`;
   return '';
 }
-export const personImg = (p, w = 200) => p.PrimaryImageTag ? `${S().url}/Items/${p.Id}/Images/Primary?tag=${p.PrimaryImageTag}&maxWidth=${w}&quality=85` : '';
+export const personImg = (p, w = 200) => p.PrimaryImageTag ? `${SI(p).url}/Items/${p.Id}/Images/Primary?tag=${p.PrimaryImageTag}&maxWidth=${w}&quality=85` : '';
 export const trickplayUrl = (id, width, index, sourceId) => `${S().url}/Videos/${id}/Trickplay/${width}/${index}.jpg?api_key=${S().token}&MediaSourceId=${sourceId}`;
 
 // ── Playback ───────────────────────────────────────────────────────────

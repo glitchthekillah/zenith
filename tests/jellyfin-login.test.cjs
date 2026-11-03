@@ -7,8 +7,8 @@ const vm = require('node:vm');
 function client(http) {
   const settings = { servers: { jellyfin: { url: 'https://example.test', token: 'existing' } } };
   const source = fs.readFileSync(path.join(__dirname, '../app/js/jellyfin.js'), 'utf8')
-    .replace(/^import .*;\r?\n/m, '').replace(/\bexport /g, '');
-  const context = { http, settings, save() {}, deviceId: 'test-device', VERSION: 'test', desktop: false };
+    .replace(/^import .*;\r?\n/gm, '').replace(/\bexport /g, '');
+  const context = { groups:{srv:()=>settings.servers.jellyfin}, http, settings, save() {}, deviceId: 'test-device', VERSION: 'test', desktop: false };
   vm.runInNewContext(source + '\nthis.subject = { signIn, publicInfo, api };', context);
   return context.subject;
 }

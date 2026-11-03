@@ -1,5 +1,5 @@
 // Settings, first-run setup, downloads and the update notice.
-import { $, $$, esc, icon, route, go, render, settings, save, toast, desktop, cleanUrl, modal, confirmBox, fmtBytes, on, emit, VERSION } from './core.js';
+import { $, $$, esc, icon, route, go, render, settings, save, toast, desktop, cleanUrl, modal, confirmBox, fmtBytes, on, emit, VERSION, groups } from './core.js';
 import * as jf from './jellyfin.js';
 import * as kv from './kavita.js';
 import * as seerr from './seerr.js';
@@ -18,6 +18,24 @@ export const PALETTES = [
   ['mono', 'Mono', ['#060606', '#2b2b33', '#4a4a55', '#d9d9e3']],
 ];
 const skyColors = () => settings.look.colors || PALETTES.find((p) => p[0] === settings.look.preset)?.[2] || PALETTES[0][2];
+// Highlight (labels, rings, checks) and button colours, chosen in Appearance
+export const ACCENTS = [
+  ['zenith', 'Zenith', '#ffb547', ['#ffb547', '#ff6fa5']], ['ocean', 'Ocean', '#38bdf8', ['#38bdf8', '#6366f1']], ['mint', 'Mint', '#34d399', ['#34d399', '#22d3ee']],
+  ['rose', 'Rose', '#fb7185', ['#fb7185', '#e879f9']], ['sunset', 'Sunset', '#fb923c', ['#f97316', '#ef4444']], ['violet', 'Violet', '#a78bfa', ['#a78bfa', '#ec4899']], ['mono', 'Mono', '#e5e7eb', ['#f4f4f5', '#a1a1aa']],
+];
+const rgbOf = (h) => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+const lum = (h) => { const [r, g, b] = rgbOf(h).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const darken = (h, t) => '#' + rgbOf(h).map((v) => Math.round(v * (1 - t)).toString(16).padStart(2, '0')).join('');
+export const accentNow = () => { const a = settings.look.accent || {}; const pre = ACCENTS.find((x) => x[0] === (a.preset || 'zenith')) || ACCENTS[0]; return { hl: a.hl || pre[2], btn: a.btn || pre[3] }; };
+export function applyAccent() {
+  const { hl, btn } = accentNow(), root = document.documentElement.style;
+  root.setProperty('--amber', hl); root.setProperty('--amber-rgb', rgbOf(hl).join(','));
+  root.setProperty('--btn1', btn[0]); root.setProperty('--btn2', btn[1]); root.setProperty('--pink-rgb', rgbOf(btn[1]).join(','));
+  root.setProperty('--btn-ink', (lum(btn[0]) + lum(btn[1])) / 2 > 0.32 ? '#14101a' : '#ffffff');
+  // On light backgrounds the highlight is deepened until it reads as text
+  let t = hl, k = 0; if (document.documentElement.dataset.theme === 'light') while (lum(t) > 0.18 && k++ < 12) t = darken(t, 0.12);
+  root.setProperty('--hl-text', t);
+}
 export function applySky() { const c = skyColors(); window.zenithSky?.set(c); const sky = document.querySelector('.sky'); if (sky && !document.body.classList.contains('liquid')) sky.style.background = c[0]; }
 const SERVERS = [
   ['jellyfin', 'Jellyfin', 'Movies, shows and anime to watch.', 'Username'],
@@ -25,6 +43,15 @@ const SERVERS = [
   ['ask', 'Request site', 'An ask site (like zenith\'s) for movies, shows, books and manga.', 'Jellyfin username'],
   ['seerr', 'Seerr', 'Jellyseerr, Overseerr or Seerr for movie and show requests.', 'Jellyfin username'],
 ];
+// One card per server group: its name, then each service with Connect or Sign out
+function srvCard(g) {
+  const sv = g.servers || {}, on = SERVERS.filter(([k]) => sv[k]).length, name = groups.nameOf(g);
+  return `<section class="srv-card" data-gid="${g.id}"><header><span class="srv-orb">${esc(name.slice(0, 1).toUpperCase())}</span>
+    <div class="srv-title"><input class="srv-name" data-group-name="${g.id}" value="${esc(g.name || '')}" placeholder="${esc(on ? name : 'New server')}" maxlength="28" aria-label="Server name"><small>${on ? `${on} of ${SERVERS.length} connected` : 'Connect something to get started'}</small></div>
+    ${groups.list().length > 1 ? `<button class="icon-btn" data-group-remove="${g.id}" title="Remove this server">${icon('x')}</button>` : ''}</header>
+    ${SERVERS.map(([k, label, desc]) => { const x = sv[k]; let host = ''; try { host = x ? new URL(x.url).host : ''; } catch {} return `<div class="srv-row ${x ? 'on' : ''}"><span class="srv-dot"></span><div><b>${esc(label)}</b><small>${x ? esc(`${x.name || 'Signed in'} on ${host}`) : esc(desc)}</small></div>${x ? `<button class="btn small" data-disconnect="${k}" data-gid="${g.id}">Sign out</button>` : `<button class="btn small gold" data-add="${k}" data-gid="${g.id}">Connect</button>`}</div>`; }).join('')}
+    ${sv.ask && sv.seerr ? '<small class="hint">Both request servers are connected: the request site is used, since it covers books and manga too.</small>' : ''}</section>`;
+}
 const connected = (k) => !!(k === 'jellyfin' ? jf.ready() : k === 'kavita' ? kv.ready() : k === 'seerr' ? seerr.ready() : settings.servers.ask?.name);
 
 // First run: Jellyfin first (it's the main thing), everything else optional
@@ -57,11 +84,12 @@ document.addEventListener('submit', async (e) => {
     try {
       const url = cleanUrl(f.url.value); if (!url) throw new Error('Enter the server address.');
       const u = f.username.value.trim(), p = f.password.value;
+      const home = groups.home(url, f.dataset.gid || groups.active().id); groups.use(home.id);
       if (kind === 'jellyfin') await jf.signIn(url, u, p);
       if (kind === 'kavita') await kv.signIn(url, u, p);
       if (kind === 'seerr') await seerr.signIn(url, u, p, f.local?.checked ? 'local' : 'jellyfin');
       if (kind === 'ask') await rq.askSignIn(url, u, p);
-      toast('Connected', 'ok'); f.closest('dialog')?.close(); emit('servers'); render();
+      toast(groups.list().length > 1 ? `Connected to ${groups.nameOf(groups.active())}` : 'Connected', 'ok'); f.closest('dialog')?.close(); emit('servers'); render();
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; btn.textContent = was; }
   }
 });
@@ -72,18 +100,24 @@ document.addEventListener('click', async (e) => {
     const f = kw.closest('dialog').querySelector('[data-connect=kavita]'), err = $('.err', f);
     const url = cleanUrl(f.url.value); if (!url) { err.textContent = 'Enter the Kavita address first.'; return; }
     kw.disabled = true; kw.textContent = 'Waiting for you to sign in...'; err.textContent = '';
-    try { await kv.signInWithWebsite(url); toast('Connected to Kavita', 'ok'); kw.closest('dialog').close(); emit('servers'); render(); }
+    try { groups.use(groups.home(url, f.dataset.gid || groups.active().id).id); await kv.signInWithWebsite(url); toast('Connected to Kavita', 'ok'); kw.closest('dialog').close(); emit('servers'); render(); }
     catch (ex) { err.textContent = ex.message; kw.disabled = false; kw.textContent = 'Sign in on the Kavita website'; }
     return;
   }
-  const c = e.target.closest('[data-add]'); if (c) return connectDialog(c.dataset.add);
+  const c = e.target.closest('[data-add]'); if (c) { if (c.dataset.gid) groups.use(c.dataset.gid); return connectDialog(c.dataset.add, c.dataset.gid); }
+  if (e.target.closest('[data-group-add]')) { groups.add(); return render(); }
+  const gr = e.target.closest('[data-group-remove]');
+  if (gr) { const g = groups.byId(gr.dataset.groupRemove); if (!(await confirmBox(`Remove ${groups.nameOf(g)} and sign out of everything on it?`, 'Remove'))) return; groups.remove(g.id); emit('servers'); return render(); }
   const d = e.target.closest('[data-disconnect]');
   if (d) {
     const k = d.dataset.disconnect;
+    if (d.dataset.gid) groups.use(d.dataset.gid);
     if (!(await confirmBox(`Sign out of ${SERVERS.find((s) => s[0] === k)[1]}?`, 'Sign out'))) return;
     if (k === 'jellyfin') await jf.signOut(); if (k === 'kavita') kv.signOut(); if (k === 'seerr') await seerr.signOut(); if (k === 'ask') await rq.askSignOut();
     emit('servers'); render();
   }
+  const ac = e.target.closest('[data-accent]');
+  if (ac) { settings.look.accent = { preset: ac.dataset.accent }; save(); const de = document.documentElement; de.classList.add('glide'); setTimeout(() => de.classList.remove('glide'), 1000); applyAccent(); $$('[data-accent]').forEach((b) => b.classList.toggle('on', b === ac)); const now = accentNow(); $$('[data-accent-pick]').forEach((i) => { i.value = i.dataset.accentPick === 'hl' ? now.hl : now.btn[i.dataset.accentPick === 'b0' ? 0 : 1]; }); return; }
   const pp = e.target.closest('[data-sky-preset]');
   if (pp) { settings.look = { preset: pp.dataset.skyPreset, colors: null }; save(); applySky(); $$('[data-sky-preset]').forEach((b) => b.classList.toggle('on', b === pp)); skyInputs(); }
   if (e.target.closest('[data-avatar-clear]')) return clearAvatar();
@@ -105,6 +139,8 @@ document.addEventListener('input', (e) => {
   const sc = e.target.closest('[data-subcolor]');
   if (sc) { settings.playback.subColor = sc.value; settings.playback.subPreset = 'custom'; sc.parentElement.parentElement.querySelectorAll('.sub-swatch').forEach((x) => x.classList.toggle('on', x === sc.parentElement)); save(); const pv = $('#sub-preview'); if (pv) applySubStyle(pv); return; }
   if (ss) { settings.playback[ss.dataset.substyle] = Number(ss.value); settings.playback.subPreset = 'custom'; $$('[data-subpreset]').forEach((b) => b.classList.remove('on')); save(); ss.nextElementSibling.textContent = ss.value + '%'; const pv = $('#sub-preview'); if (pv) applySubStyle(pv); return; }
+  const ap = e.target.closest('[data-accent-pick]');
+  if (ap) { const now = accentNow(); const a = { preset: 'custom', hl: now.hl, btn: [...now.btn] }; if (ap.dataset.accentPick === 'hl') a.hl = ap.value; else a.btn[ap.dataset.accentPick === 'b0' ? 0 : 1] = ap.value; settings.look.accent = a; save(); applyAccent(); $$('[data-accent]').forEach((b) => b.classList.remove('on')); return; }
   const i = e.target.closest('[data-sky]'); if (!i) return;
   const c = [...skyColors()]; c[Number(i.dataset.sky)] = i.value;
   settings.look = { preset: 'custom', colors: c }; applySky(); $$('[data-sky-preset]').forEach((b) => b.classList.remove('on'));
@@ -113,18 +149,21 @@ document.addEventListener('change', async (e) => {
   if (e.target.closest('[data-sky]')) return save();
   const av = e.target.closest('[data-avatar]');
   if (av) { const f = av.files?.[0]; av.value = ''; if (f) pickAvatar(f); return; }
+  const gn = e.target.closest('[data-group-name]');
+  if (gn) { const g = groups.byId(gn.dataset.groupName); if (g) { g.name = gn.value.trim(); save(); emit('servers'); toast('Saved', 'ok'); } return; }
   const s = e.target.closest('[data-set]'); if (!s) return;
   const [group, key] = s.dataset.set.split('.');
   settings[group][key] = s.type === 'checkbox' ? s.checked : s.type === 'number' || s.dataset.num ? Number(s.value) : s.value;
   save(); toast('Saved', 'ok');
   if (group === 'profile') emit('servers');
+  if (s.dataset.set === 'app.liveSky') document.body.classList.toggle('calm', !settings.app.liveSky);
   if (s.dataset.set === 'playback.subtitles') render();
 });
-function connectDialog(kind) {
+function connectDialog(kind, gid = '') {
   const [k, name, desc, user] = SERVERS.find((s) => s[0] === kind);
   const guess = settings.servers.jellyfin?.url || '';
   modal(`<h2>Connect ${esc(name)}</h2><p style="color:var(--mute);margin:0 0 16px">${esc(desc)}</p>
-    <form data-connect="${k}" style="display:grid;gap:12px"><label class="lab">Address<div class="field">${icon('link')}<input name="url" placeholder="https://${k}.example.com" value="${k === 'jellyfin' ? esc(guess) : ''}" required></div></label>
+    <form data-connect="${k}" data-gid="${esc(gid)}" style="display:grid;gap:12px"><label class="lab">Address<div class="field">${icon('link')}<input name="url" placeholder="https://${k}.example.com" value="${k === 'jellyfin' ? esc(guess) : ''}" required></div></label>
     <label class="lab">${esc(user)}<div class="field">${icon('user')}<input name="username" value="${k !== 'kavita' ? esc(settings.servers.jellyfin?.name || '') : ''}" autocomplete="username" ${k === 'kavita' ? '' : 'required'}></div></label>
     <label class="lab">Password<div class="field">${icon('lock')}<input name="password" type="password" autocomplete="current-password"></div></label>
     ${k === 'seerr' ? '<label class="set-row" style="border:0;padding:0"><div><b>Seerr account (email)</b><small>Instead of the Jellyfin account</small></div><span class="switch"><input type="checkbox" name="local"><span></span></span></label>' : ''}
@@ -171,10 +210,12 @@ route('settings', async (sub) => {
       ${group('', `<label class="set-row"><div><b>Name</b><small>Used for your greeting on Home.</small></div><input class="inp" data-set="profile.name" value="${esc(settings.profile.name)}" placeholder="${esc(settings.servers.jellyfin?.name || 'Your name')}" maxlength="32"></label>`)}`)}
     ${pane('look', 'Appearance', 'Light or dark, and the colours of the moving background.', `
       ${group('Theme', `<div class="themes">${[['dark', 'Dark'], ['light', 'Light'], ['system', 'Match my system']].map(([v, l]) => `<button class="theme-card ${settings.theme === v ? 'on' : ''}" data-theme-pick="${v}"><span class="tc ${v}"><i></i><i></i><i></i></span>${l}</button>`).join('')}</div>`)}
+      ${group('Highlight and buttons', `<div class="accents">${ACCENTS.map(([k, l, h, b]) => `<button class="accent ${(settings.look.accent?.preset || 'zenith') === k && !settings.look.accent?.hl ? 'on' : ''}" data-accent="${k}"><span class="ac-btn" style="background:linear-gradient(135deg,${b[0]},${b[1]})"></span><span class="ac-dot" style="background:${h}"></span>${l}</button>`).join('')}</div>
+        <div class="sky-picks" style="padding-bottom:8px">${[['hl', 'Highlight', accentNow().hl], ['b0', 'Button start', accentNow().btn[0]], ['b1', 'Button end', accentNow().btn[1]]].map(([k, l, v]) => `<label><input type="color" data-accent-pick="${k}" value="${v}">${l}</label>`).join('')}</div>`)}
       ${group('Background', `<div class="set-row" style="display:block;border:0;padding-top:0"><div><b>Palette</b><small>Pick one, or set your own four colours below.</small></div><div class="palettes">${PALETTES.map(([k, l, c]) => `<button class="pal ${settings.look.preset === k ? 'on' : ''}" data-sky-preset="${k}" title="${l}"><span style="background:radial-gradient(circle at 30% 30%,${c[3]},transparent 45%),radial-gradient(circle at 75% 70%,${c[2]},transparent 60%),linear-gradient(135deg,${c[1]},${c[0]})"></span>${l}</button>`).join('')}</div>
         <div class="sky-picks">${['Base', 'Cloud one', 'Cloud two', 'Light'].map((l, i) => `<label><input type="color" data-sky="${i}" value="${skyColors()[i]}">${l}</label>`).join('')}</div></div>`)}`)}
-    ${pane('servers', 'Servers', 'Everything stays between this app and your servers.', group('', `${SERVERS.map(([k, name, desc]) => { const s = settings.servers[k]; return `<div class="set-row"><div><b>${esc(name)}</b><small>${connected(k) ? esc(`${s.name || 'Signed in'} on ${new URL(s.url).host}`) : esc(desc)}</small></div>${connected(k) ? `<button class="btn small" data-disconnect="${k}">Sign out</button>` : `<button class="btn small gold" data-add="${k}">Connect</button>`}</div>`; }).join('')}
-      ${rq.provider() === 'ask' && seerr.ready() ? '<small class="hint">Both request servers are connected: the request site is used, since it covers books and manga too.</small>' : ''}`))}
+    ${pane('servers', 'Servers', "Each card is one server, yours or a friend's. Connect its Jellyfin, Kavita and request sites and everything shows up together, marked with where it's from.", `<div class="srv-cards">${groups.list().map(srvCard).join('')}
+      <button class="srv-add" data-group-add>${icon('plus')}<b>Add another server</b><small>A friend's Jellyfin, Kavita or request site</small></button></div>`)}
     ${pane('playback', 'Playback', 'How videos play.', `
       ${group('Video', `${sw('playback.directPlay', 'Play the original file when possible', 'Best quality and no work for the server. Turn off if videos stutter.')}
       <label class="set-row"><div><b>Default quality</b><small>Lower uses less internet.</small></div><select data-set="playback.maxBitrate" data-num="1">${[[0, 'Original'], [40e6, '1080p high'], [20e6, '1080p'], [8e6, '720p'], [4e6, '480p'], [1.5e6, 'Data saver']].map(([v, l]) => `<option value="${v}" ${p.maxBitrate === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -202,12 +243,14 @@ route('settings', async (sub) => {
         ${range('Height from the bottom', 'subPos', 2, 25, 1)}
         <div class="set-row"><div><b>Start over</b><small>Back to the Zenith preset.</small></div><button class="btn small" data-subreset>Reset</button></div>`)}`)}
     ${pane('general', 'General', 'Home, covers and extras.', group('', `${sw('app.rewatch', 'Rewatching', 'Next up follows the episode you watched last, not the furthest one. Go back to S1 E1 while you are on S2 E5, and Next up and Home offer S1 E2, not S2 E6.')}
+      ${sw('app.liveSky', 'Moving background', 'Turn off for the smoothest app on slower computers. The background stays as a still picture.')}
       ${sw('app.covers', 'Covers for each volume and episode', 'Shows every volume cover and an episode preview you can hover to play through. Off is a plain list.')}
 <label class="set-row"><div><b>Open on</b></div><select data-set="app.startPage">${[['home', 'Home'], ['movies', 'Movies'], ['shows', 'Shows'], ['read', 'Read'], ['request', 'Request']].map(([v, l]) => `<option value="${v}" ${a.startPage === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
 ${sw('app.notify', 'Tell me when my requests are ready')}
       ${desktop ? sw('app.discord', 'Show what I watch on my Discord profile', 'Needs the Discord app open on this computer.') : ''}`))}
     ${pane('about', 'About', 'Version, shortcuts and starting over.', `
       ${group('', `<div class="set-row"><div><b>Version ${esc(info?.version || VERSION)}</b><small>${desktop ? (info?.selfUpdate ? 'Updates download and install by themselves.' : 'You will be told when a new version is out.') : 'Web version'}</small></div>${desktop ? '<button class="btn small" data-check-updates>Check now</button>' : ''}</div>`)}
+      ${group('', (() => { const g = window.zenithGpu || 'Unknown'; const soft = /swiftshader|llvmpipe|software|basic render/i.test(g); return `<div class="set-row"><div><b>Graphics</b><small>${esc(g)}${soft ? '<br><span style="color:var(--bad)">Drawing on the processor, not the graphics card, so the app will feel slow. Update your graphics driver, or turn off Moving background in General.</span>' : ''}</small></div></div>`; })())}
       ${group('Keyboard', `<div class="keys">${keys.map(([k, l]) => `<div><kbd>${k}</kbd><span>${l}</span></div>`).join('')}</div>`)}
       ${group('', `<div class="set-row"><div><b>Start over</b><small>Signs out everywhere on this device</small></div><button class="btn small danger" data-reset>Reset</button></div>`)}`)}
     </div>
@@ -262,5 +305,6 @@ export function applyTheme() {
   const root = document.documentElement;
   if (root.dataset.theme && root.dataset.theme !== t) { root.classList.add('glide'); clearTimeout(applyTheme.t); applyTheme.t = setTimeout(() => root.classList.remove('glide'), 1000); }
   root.dataset.theme = t;
+  applyAccent();
 }
 matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);

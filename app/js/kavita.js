@@ -2,7 +2,9 @@
 import { http, settings, save, desktop } from './core.js';
 import { browserWebLogin } from './web-login.js';
 
-const S = () => settings.servers.kavita;
+import { groups } from './core.js';
+const S = () => groups.srv('kavita');
+const SG = (g) => (g && groups.byId(g)?.servers?.kavita) || S();
 const api = (path, opts = {}) => http(S().url + path, { ...opts, headers: { ...(S().cookie ? {} : { Authorization: `Bearer ${S().token}` }), ...(opts.headers || {}) } });
 export const ready = () => !!(S()?.token || S()?.cookie);
 
@@ -28,28 +30,37 @@ export async function signIn(url, username, password) {
 // Sign in on the Kavita website itself (desktop app): works with Kavita's single sign-on,
 // such as its "Jellyfin" button. The app keeps the sign-in Kavita saves.
 export async function signInWithWebsite(url) {
+  url = String(url).replace(/\/+$/, '');
   const r = desktop?.webLogin ? await desktop.webLogin(url) : await browserWebLogin(url, async login => {
     const account = await http(url + '/api/Account', { headers: { Authorization: 'Bearer ' + login.token } });
     if (account.username !== login.username) throw new Error('Account mismatch');
     return login;
   });
   if (!r) throw new Error('Sign-in was closed before it finished.');
-  settings.servers.kavita = { url, token: r.token, refreshToken: r.refreshToken, apiKey: r.apiKey, cookie: !!r.cookie, name: r.username || 'Kavita' };
+  let { token = '', refreshToken = '', apiKey, username, cookie = false } = r;
+  if (!apiKey) {
+    const account = await http(url + '/api/Account', { headers: cookie ? {} : { Authorization: 'Bearer ' + token } });
+    if (account.username !== username) throw new Error('Account mismatch');
+    apiKey = account.authKeys?.find(k => k.name === 'image-only')?.key || account.apiKey || '';
+  }
+  if (!apiKey) throw new Error('Kavita signed you in but did not provide an image key. Check your Kavita account API keys.');
+  settings.servers.kavita = { url, token, refreshToken, apiKey, cookie: !!cookie, name: username || 'Kavita' };
   save();
   return settings.servers.kavita;
 }
 export function signOut() { settings.servers.kavita = null; save(); }
 // Kavita tokens expire; refresh once when a request says we're signed out
 async function call(path, opts) {
+  const srv = S();
   try { return await api(path, opts); }
   catch (e) {
     if (e.status !== 401) throw e;
     // Expired: renew with the refresh token, or with the account's API key (lasts until it's reset in Kavita)
-    let r = S()?.refreshToken ? await http(S().url + '/api/Account/refresh-token', { method: 'POST', body: { token: S().token, refreshToken: S().refreshToken } }).catch(() => null) : null;
-    if (!r?.token && S()?.apiKey) r = await http(`${S().url}/api/Plugin/authenticate?apiKey=${encodeURIComponent(S().apiKey)}&pluginName=Zenith`, { method: 'POST' }).catch(() => null);
+    let r = srv?.refreshToken ? await http(srv.url + '/api/Account/refresh-token', { method: 'POST', body: { token: srv.token, refreshToken: srv.refreshToken } }).catch(() => null) : null;
+    if (!r?.token && srv?.apiKey) r = await http(`${srv.url}/api/Plugin/authenticate?apiKey=${encodeURIComponent(srv.apiKey)}&pluginName=Zenith`, { method: 'POST' }).catch(() => null);
     if (!r?.token) throw e;
-    Object.assign(S(), { token: r.token, refreshToken: r.refreshToken || S().refreshToken }); save();
-    return api(path, opts);
+    Object.assign(srv, { token: r.token, refreshToken: r.refreshToken || srv.refreshToken }); save();
+    return http(srv.url + path, { ...opts, headers: { Authorization: `Bearer ${srv.token}`, ...((opts || {}).headers || {}) } });
   }
 }
 
@@ -78,7 +89,7 @@ export const bookInfo = (chapterId) => call(`/api/Book/${chapterId}/book-info`);
 export const bookChapters = (chapterId) => call(`/api/Book/${chapterId}/chapters`).catch(() => []);
 export const bookPage = (chapterId, page) => call(`/api/Book/${chapterId}/book-page?page=${page}`);
 
-export const cover = (seriesId) => `${S().url}/api/Image/series-cover?seriesId=${seriesId}&apiKey=${S().apiKey}`;
+export const cover = (seriesId, g) => `${SG(g).url}/api/Image/series-cover?seriesId=${seriesId}&apiKey=${SG(g).apiKey}`;
 export const chapterCover = (chapterId) => `${S().url}/api/Image/chapter-cover?chapterId=${chapterId}&apiKey=${S().apiKey}`;
 export const volumeCover = (volumeId) => `${S().url}/api/Image/volume-cover?volumeId=${volumeId}&apiKey=${S().apiKey}`;
 export const pageImage = (chapterId, page) => `${S().url}/api/Reader/image?chapterId=${chapterId}&page=${page}&apiKey=${S().apiKey}&extractPdf=true`;

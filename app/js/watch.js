@@ -1,5 +1,5 @@
 // Watch pages: home, libraries, a title's page, people and search.
-import { $, $$, esc, icon, route, go, settings, fmtRuntime, plural, loading, errorBox, toast, desktop, emit, on, debounce } from './core.js';
+import { $, $$, esc, icon, route, go, settings, fmtRuntime, plural, loading, errorBox, toast, desktop, emit, on, debounce, groups, gsuf, splitId } from './core.js';
 import * as jf from './jellyfin.js';
 import * as player from './player.js';
 import * as kv from './kavita.js';
@@ -9,11 +9,16 @@ import { avatarHtml } from './avatar.js';
 const cache = new Map(); // id -> item, so clicks know what they opened
 const remember = (list) => { for (const it of list || []) cache.set(it.Id, it); return list; };
 export const known = (id) => cache.get(id);
+// Ask every connected server (each group) and tag the results with where they came from
+const fromAll = async (kind, fn) => (await Promise.all(groups.with(kind).map((g) => Promise.resolve().then(() => groups.run(g, fn)).then((x) => groups.tag(g, Array.isArray(x) ? x : x?.Items || [])).catch(() => [])))).flat();
+const inGroup = (x, fn) => (x?._g ? groups.run(groups.byId(x._g), fn) : fn());
+const fromPill = (x, kind = 'jellyfin') => (x?._g && groups.many(kind) ? `<span class="from-pill">from ${esc(groups.nameOf(groups.byId(x._g)))}</span>` : '');
+const recent = (a, b) => Date.parse(b.UserData?.LastPlayedDate || 0) - Date.parse(a.UserData?.LastPlayedDate || 0);
 
 // ── Cards ───────────────────────────────────────────────────────────────
 // Posters: episodes and seasons show their show's poster and name (episode stills look
 // like random screenshots in a poster grid). Wide cards keep the episode's own picture.
-const seriesPoster = (it, w) => it.SeriesPrimaryImageTag ? `${settings.servers.jellyfin.url}/Items/${it.SeriesId}/Images/Primary?tag=${it.SeriesPrimaryImageTag}&maxWidth=${w}&quality=88` : '';
+const seriesPoster = (it, w) => it.SeriesPrimaryImageTag ? `${(it._g && groups.byId(it._g)?.servers.jellyfin || settings.servers.jellyfin || groups.srv('jellyfin')).url}/Items/${it.SeriesId}/Images/Primary?tag=${it.SeriesPrimaryImageTag}&maxWidth=${w}&quality=88` : '';
 export function card(it, { wide = false, badge = '', asShow = false } = {}) {
   const ep = it.Type === 'Episode', season = it.Type === 'Season';
   const pic = wide ? jf.img(it, 'Thumb', 480) : ep ? seriesPoster(it, 300) || jf.img(it, 'Primary', 300) : season ? jf.img(it, 'Primary', 300) || seriesPoster(it, 300) : jf.img(it, 'Primary', 300);
@@ -22,15 +27,15 @@ export function card(it, { wide = false, badge = '', asShow = false } = {}) {
   const sub = asShow && ep ? `Latest: ${epCode}` : asShow && season ? `Latest: ${it.Name}` : ep ? (wide ? `${epCode} · ${it.Name}` : epCode) : season ? it.Name : it.Type === 'Series' ? [it.ProductionYear, it.Status === 'Continuing' ? 'Ongoing' : ''].filter(Boolean).join(' · ') : it.ProductionYear || '';
   const title = ep || season ? it.SeriesName || it.Name : it.Name;
   // asShow: a "new episode" card opens and plays the show (from where you are, or episode 1 if you never started)
-  const href = asShow && it.SeriesId ? `#/item/${it.SeriesId}` : season ? `#/item/${it.SeriesId}/${it.Id}` : `#/item/${it.Id}`;
+  const href = asShow && it.SeriesId ? `#/item/${it.SeriesId}${gsuf(it)}` : season ? `#/item/${it.SeriesId}${gsuf(it)}/${it.Id}` : `#/item/${it.Id}${gsuf(it)}`;
   const playId = asShow && it.SeriesId ? it.SeriesId : it.Id;
   const unplayed = it.UserData?.UnplayedItemCount;
   return `<a class="card" href="${href}" data-id="${it.Id}">
     <div class="art${wide ? ' wide' : ''}">${pic ? `<img loading="lazy" src="${esc(pic)}" alt="">` : `<div class="ph">${esc(title)}</div>`}
       ${badge ? `<span class="badge amber">${esc(badge)}</span>` : ''}
       ${it.UserData?.Played ? `<span class="check">${icon('check')}</span>` : unplayed ? `<span class="badge right pink">${unplayed}</span>` : ''}
-      ${pct ? `<span class="bar"><i style="width:${pct}%"></i></span>` : ''}
-      ${['Movie', 'Episode'].includes(it.Type) || asShow ? `<span class="play-over" data-play="${playId}"><span>${icon('play')}</span></span>` : ''}
+      ${pct ? `<span class="bar"><i style="width:${pct}%"></i></span>` : ''}${fromPill(it)}
+      ${['Movie', 'Episode'].includes(it.Type) || asShow ? `<span class="play-over"><span data-play="${playId}" title="Play">${icon('play')}</span></span>` : ''}
     </div><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</a>`;
 }
 // "New in" rows: one card per show, however many new episodes or seasons it got
@@ -56,30 +61,30 @@ route('home', async () => {
   const add = (order, html) => { if (html) parts.push({ order, html }); };
   if (jf.ready()) {
     tasks.push((async () => {
-      const [resume, next, views] = await Promise.all([jf.resume(20).catch(() => []), jf.nextUp(20).catch(() => []), jf.views().catch(() => [])]);
+      const [resume, next, views] = await Promise.all([fromAll('jellyfin', () => jf.resume(20)).then((l) => l.sort(recent).slice(0, 24)), fromAll('jellyfin', () => jf.nextUp(20)).then((l) => l.sort(recent).slice(0, 24)), fromAll('jellyfin', () => jf.views())]);
       remember(resume); remember(next);
       stats.resume = resume.length; stats.next = next.length; resumeTop = resume[0] || next[0] || null;
       const libs = views.filter((v) => ['movies', 'tvshows', 'boxsets', 'homevideos', 'mixed', undefined].includes(v.CollectionType));
       const [latest, picks, top, because] = await Promise.all([
-        Promise.all(libs.slice(0, 6).map((v) => jf.latest(v.Id, 18).then((items) => ({ v, items: remember(items) })).catch(() => ({ v, items: [] })))),
-        jf.items({ types: 'Movie,Series', sort: 'Random', filters: 'IsUnplayed', limit: 18 }).then((r) => remember(r.Items || [])).catch(() => []),
-        jf.items({ types: 'Movie,Series', sort: 'CommunityRating', order: 'Descending', limit: 18 }).then((r) => remember(r.Items || [])).catch(() => []),
-        (async () => { const seed = resume[0] || next[0]; if (!seed) return null; const id = seed.SeriesId || seed.Id; const items = remember(await jf.similar(id).catch(() => [])); return items.length ? { name: seed.SeriesName || seed.Name, items } : null; })(),
+        Promise.all(libs.slice(0, 8).map((v) => Promise.resolve(inGroup(v, () => jf.latest(v.Id, 18))).then((items) => ({ v, items: remember(groups.tag(groups.byId(v._g) || groups.active(), items || [])) })).catch(() => ({ v, items: [] })))),
+        fromAll('jellyfin', () => jf.items({ types: 'Movie,Series', sort: 'Random', filters: 'IsUnplayed', limit: 18 })).then((l) => remember(l.sort(() => Math.random() - 0.5).slice(0, 24))),
+        fromAll('jellyfin', () => jf.items({ types: 'Movie,Series', sort: 'CommunityRating', order: 'Descending', limit: 18 })).then((l) => remember(l.sort((a, b) => (b.CommunityRating || 0) - (a.CommunityRating || 0)).slice(0, 24))),
+        (async () => { const seed = resume[0] || next[0]; if (!seed) return null; const id = seed.SeriesId || seed.Id; const items = remember(groups.tag(groups.byId(seed._g) || groups.active(), await Promise.resolve(inGroup(seed, () => jf.similar(id))).catch(() => []))); return items.length ? { name: seed.SeriesName || seed.Name, items } : null; })(),
       ]);
       shuffle = picks;
       const heroPool = latest.flatMap((x) => x.items).filter((i) => i.BackdropImageTags?.length && i.Overview).slice(0, 6);
       add(1, hero(heroPool.length ? heroPool : picks.filter((i) => i.BackdropImageTags?.length && i.Overview).slice(0, 6)));
       add(2, shelf('Continue watching', resume.map((i) => card(i, { wide: true })).join(''), '', true));
-      add(3, libs.length > 1 ? `<section class="row"><div class="row-head"><h3>Your libraries</h3></div><div class="libtiles">${libs.map((v) => `<a class="libtile" href="#/library/${v.Id}">${jf.img(v, 'Primary', 600) ? `<img loading="lazy" src="${esc(jf.img(v, 'Primary', 600))}" alt="">` : ''}<span>${esc(v.Name)}</span></a>`).join('')}</div></section>` : '');
+      add(3, libs.length > 1 ? `<section class="row"><div class="row-head"><h3>Your libraries</h3></div><div class="libtiles">${libs.map((v) => `<a class="libtile" href="#/library/${v.Id}${gsuf(v)}">${jf.img(v, 'Primary', 600) ? `<img loading="lazy" src="${esc(jf.img(v, 'Primary', 600))}" alt="">` : ''}<span>${esc(v.Name)}${groups.many('jellyfin') && v._g ? `<small>${esc(groups.nameOf(groups.byId(v._g)))}</small>` : ''}</span></a>`).join('')}</div></section>` : '');
       add(4, shelf('Next up', next.map((i) => card(i, { wide: true })).join(''), '', true));
       add(5, shelf('Picked for you', picks.map((i) => card(i)).join('')));
       add(6, because ? shelf(`Because you watched ${because.name}`, because.items.map((i) => card(i)).join('')) : '');
-      latest.forEach((x, n) => add(7 + n, shelf(`New in ${x.v.Name}`, newCards(x.items), `#/library/${x.v.Id}`)));
+      latest.forEach((x, n) => add(7 + n, shelf(`New in ${x.v.Name}${groups.many('jellyfin') && x.v._g ? ` · ${groups.nameOf(groups.byId(x.v._g))}` : ''}`, newCards(x.items), `#/library/${x.v.Id}${gsuf(x.v)}`)));
       add(15, shelf('Top rated on your server', top.filter((i) => i.CommunityRating).map((i) => card(i, { badge: i.CommunityRating.toFixed(1) })).join('')));
     })());
   }
-  if (kv.ready()) tasks.push((async () => {
-    const [deck, fresh] = await Promise.all([kv.onDeck(), kv.recent()]);
+  if (groups.with('kavita').length) tasks.push((async () => {
+    const [deck, fresh] = await Promise.all([fromAll('kavita', () => kv.onDeck()), fromAll('kavita', () => kv.recent())]);
     stats.read = (deck || []).length;
     add(20, shelf('Keep reading', (deck || []).map(readCard).join(''), '#/read'));
     add(21, shelf('New to read', (fresh || []).map(readCard).join(''), '#/read'));
@@ -126,7 +131,7 @@ on('rendered', () => {
 });
 const hs = document.createElement('style'); hs.textContent = '.hero-slide{position:absolute;inset:0;display:flex;align-items:flex-end}.hero-slide img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;animation:heroin .8s ease both}.hero-slide::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(7,7,13,.95) 0,rgba(7,7,13,.6) 45%,transparent 75%),linear-gradient(0deg,rgba(7,7,13,.9),transparent 55%)}.hero-slide .hero-in{z-index:1}.hero::after{display:none}@keyframes heroin{from{opacity:0;transform:scale(1.04)}}'; document.head.append(hs);
 
-export const readCard = (s) => `<a class="card" href="#/series/${s.id}"><div class="art"><img loading="lazy" src="${esc(kv.cover(s.id))}" alt="">${s.pagesRead && s.pages ? `<span class="bar"><i style="width:${Math.round((s.pagesRead / s.pages) * 100)}%"></i></span>` : ''}</div><b>${esc(s.name)}</b>${s.libraryName ? `<small>${esc(s.libraryName)}</small>` : ''}</a>`;
+export const readCard = (s) => `<a class="card" href="#/series/${s.id}${gsuf(s)}"><div class="art"><img loading="lazy" src="${esc(kv.cover(s.id, s._g))}" alt="">${fromPill(s, 'kavita')}${s.pagesRead && s.pages ? `<span class="bar"><i style="width:${Math.round((s.pagesRead / s.pages) * 100)}%"></i></span>` : ''}</div><b>${esc(s.name)}</b>${s.libraryName ? `<small>${esc(s.libraryName)}</small>` : ''}</a>`;
 export const requestCard = (x) => `<a class="card" href="#/request-item/${x.type}/${encodeURIComponent(x.id ?? x.key)}" data-key="${esc(x.key)}"><div class="art">${x.poster ? `<img loading="lazy" src="${esc(x.poster)}" alt="">` : `<div class="ph">${esc(x.title)}</div>`}${x.status && x.status !== 'none' ? `<span class="badge ${x.status === 'available' ? 'ok' : 'amber'}">${esc(rq.STATUS[x.status] || x.status)}</span>` : ''}</div><b>${esc(x.title)}</b><small>${esc([x.year, x.author, x.type === 'tv' ? (x.anime ? 'Anime' : 'Show') : x.type === 'movie' ? 'Movie' : x.type].filter(Boolean).join(' · '))}</small></a>`;
 
 // ── Libraries ───────────────────────────────────────────────────────────
@@ -135,6 +140,7 @@ const libState = {};
 route('movies', () => libraryPage(null, 'Movie', 'Movies'));
 route('shows', () => libraryPage(null, 'Series', 'Shows'));
 route('library', async (id) => {
+  id = splitId(id);
   const v = (await jf.views()).find((x) => x.Id === id);
   const type = v?.CollectionType === 'movies' ? 'Movie' : v?.CollectionType === 'tvshows' ? 'Series' : v?.CollectionType === 'boxsets' ? 'BoxSet' : '';
   return libraryPage(id, type, v?.Name || 'Library');
@@ -165,7 +171,24 @@ async function fillLibrary(parentId, type, st, reset) {
   const q = { parentId: parentId || '', types: type || '', sort: st.sort === 'Random' ? 'Random' : `${st.sort},SortName`, order: st.order, start: st.start, limit: 60, filters: st.filter, genres: st.genre, recursive: true };
   if (st.sort !== 'SortName' && st.sort !== 'Random' && reset) q.order = st.order === 'Ascending' && ['DateCreated', 'PremiereDate', 'CommunityRating', 'DatePlayed'].includes(st.sort) ? 'Descending' : st.order;
   try {
-    const r = await jf.items(q);
+    const gs = groups.with('jellyfin');
+    let r;
+    if (!parentId && gs.length > 1) {
+      if (reset) { st.starts = {}; st.totals = {}; }
+      const parts = await Promise.all(gs.map((g) => (st.totals[g.id] != null && (st.starts[g.id] || 0) >= st.totals[g.id]) ? { g, Items: [], TotalRecordCount: st.totals[g.id] }
+        : Promise.resolve(groups.run(g, () => jf.items({ ...q, start: st.starts[g.id] || 0, limit: 40 }))).then((x) => ({ g, ...x })).catch(() => ({ g, Items: [], TotalRecordCount: 0 }))));
+      for (const p of parts) { groups.tag(p.g, p.Items); st.starts[p.g.id] = (st.starts[p.g.id] || 0) + p.Items.length; st.totals[p.g.id] = p.TotalRecordCount; }
+      let items = parts.flatMap((p) => p.Items);
+      if (st.sort === 'SortName') items.sort((a, b) => (a.SortName || a.Name).localeCompare(b.SortName || b.Name) * (st.order === 'Ascending' ? 1 : -1));
+      r = { Items: items, TotalRecordCount: parts.reduce((n, p) => n + p.TotalRecordCount, 0) };
+      remember(r.Items);
+      const html = r.Items.map((i) => card(i)).join('');
+      if (reset) grid.innerHTML = html || '<div class="empty" style="grid-column:1/-1"><h2>Nothing matches</h2><p>Try another filter.</p></div>'; else grid.insertAdjacentHTML('beforeend', html);
+      const c = $('#lib-count'); if (c) c.textContent = plural(r.TotalRecordCount, 'title');
+      grid.dataset.done = gs.every((g) => (st.starts[g.id] || 0) >= (st.totals[g.id] || 0)) ? '1' : '';
+      return;
+    }
+    r = await jf.items(q);
     remember(r.Items);
     const html = r.Items.map((i) => card(i)).join('');
     if (reset) grid.innerHTML = html || '<div class="empty" style="grid-column:1/-1"><h2>Nothing matches</h2><p>Try another filter.</p></div>'; else grid.insertAdjacentHTML('beforeend', html);
@@ -205,6 +228,7 @@ document.addEventListener('click', async (e) => {
 
 // ── A title's page ─────────────────────────────────────────────────────
 route('item', async (id, seasonId) => {
+  id = splitId(id);
   if (!jf.ready()) return needServer('Jellyfin');
   const it = await jf.item(id);
   cache.set(id, it);
@@ -227,6 +251,7 @@ route('item', async (id, seasonId) => {
     <h1>${esc(it.Name)}</h1>${it.Taglines?.[0] ? `<p class="tagline">${esc(it.Taglines[0])}</p>` : ''}
     <div class="facts">${facts.join('<span>·</span>')}</div>
     <p class="overview">${esc(it.Overview || '')}</p>
+    ${['Movie', 'Episode', 'Series'].includes(it.Type) ? await prePlay(it, playId) : ''}
     <div class="acts">
       ${it.Type !== 'BoxSet' ? `<button class="btn gold big" data-play="${playId}">${icon('play')} ${esc(resumeLabel)}</button>` : ''}
       ${it.UserData?.PlaybackPositionTicks ? `<button class="btn big" data-play-start="${it.Id}">From the start</button>` : ''}
@@ -243,13 +268,48 @@ route('item', async (id, seasonId) => {
   return html;
 });
 const fmtTimeTicks = (t) => { const s = Math.floor(t / 1e7); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`; };
+// Audio and quality pickers on the info page (start on your Settings defaults)
+const QUALS = [[0, 'Original quality'], [40e6, '1080p high'], [20e6, '1080p'], [8e6, '720p'], [4e6, '480p'], [1.5e6, 'Data saver']];
+export const prePick = { audio: null, quality: null, sub: null, for: null };
+async function prePlay(it, playId) {
+  const src = (it.Type === 'Series' ? (await jf.item(playId).catch(() => null)) : it)?.MediaSources?.[0];
+  const audio = (src?.MediaStreams || []).filter((x) => x.Type === 'Audio');
+  if (prePick.for !== it.Id) Object.assign(prePick, { audio: null, quality: null, sub: null, for: it.Id });
+  const tracks = await import('./tracks.js');
+  const list = audio.map((x) => ({ index: x.Index, label: x.DisplayTitle || x.Language || `Track ${x.Index}`, lang: x.Language || '', isDefault: !!x.IsDefault }));
+  // A show: choose by language, so it carries over to every episode
+  const langs = [...new Map(list.map((a) => [a.lang || a.label, a])).values()];
+  const auto = tracks.pickAudio(list, src?.DefaultAudioStreamIndex);
+  const autoLang = list.find((a) => a.index === auto)?.lang || '';
+  const opts = it.Type === 'Series' ? langs.map((a) => [a.lang, (tracks.LANGS.find((l) => tracks.isLang(a, l[0]))?.[1]) || a.label]) : list.map((a) => [String(a.index), a.label]);
+  const sel = prePick.audio ?? (it.Type === 'Series' ? autoLang : String(auto));
+  const q = prePick.quality ?? settings.playback.maxBitrate ?? 0;
+  // Subtitles: Auto follows your rules; a show picks by language so it carries to every episode
+  const subs = (src?.MediaStreams || []).filter((x) => x.Type === 'Subtitle').map((x) => ({ index: x.Index, label: x.DisplayTitle || x.Language || `Track ${x.Index}`, lang: x.Language || '', forced: !!x.IsForced, textBased: !!x.IsTextSubtitleStream }));
+  const langName = (t) => tracks.LANGS.find((l) => tracks.isLang(t, l[0]))?.[1] || t.label;
+  const subOpts = it.Type === 'Series'
+    ? [...new Map(subs.filter((x) => !x.forced).map((x) => [x.lang || x.label, x])).values()].map((x) => [`lang:${x.lang}`, langName(x)])
+    : subs.map((x) => [String(x.index), x.label + (x.forced ? ' (forced)' : '')]);
+  const autoSub = tracks.pickSub(subs, list.find((a) => a.index === auto));
+  const autoName = autoSub == null ? 'Off' : (it.Type === 'Series' ? langName(subs.find((x) => x.index === autoSub)) : subs.find((x) => x.index === autoSub)?.label);
+  const sv = prePick.sub ?? 'auto';
+  return `<div class="preplay">
+    ${opts.length > 1 ? `<label class="pp">${icon('volume')}<select data-preaudio>${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(sel) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>` : ''}
+    ${subs.length ? `<label class="pp">${icon('subs')}<select data-presub><option value="auto" ${sv === 'auto' ? 'selected' : ''}>Auto (${esc(autoName || 'Off')})</option><option value="off" ${sv === 'off' ? 'selected' : ''}>Subtitles off</option>${subOpts.map(([v, l]) => `<option value="${esc(v)}" ${sv === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>` : ''}
+    <label class="pp">${icon('speed')}<select data-prequality>${QUALS.map(([v, l]) => `<option value="${v}" ${Number(q) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>`;
+}
+document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-preaudio]')) prePick.audio = e.target.value;
+  if (e.target.matches('[data-prequality]')) prePick.quality = Number(e.target.value);
+  if (e.target.matches('[data-presub]')) prePick.sub = e.target.value;
+});
 async function seasonsBlock(series, seasonId) {
   const seasons = await jf.seasons(series.Id);
   if (!seasons.length) return '';
   const cur = seasons.find((s) => s.Id === seasonId) || seasons.find((s) => !s.UserData?.Played && s.IndexNumber > 0) || seasons[0];
   const eps = remember(await jf.episodes(series.Id, cur.Id));
   return `<section class="row"><div class="row-head"><h3>Episodes</h3><span style="display:flex;gap:8px">${cur.UserData && !cur.UserData.Played ? `<button class="btn small" data-watched="${cur.Id}">${icon('check')} Mark season watched</button>` : ''}</span></div>
-    <div class="chips">${seasons.map((s) => `<a class="chip ${s.Id === cur.Id ? 'on' : ''}" href="#/item/${series.Id}/${s.Id}" style="text-decoration:none">${esc(s.Name)}</a>`).join('')}</div>
+    <div class="season-pick">${seasons.map((s) => { const pic = jf.img(s, 'Primary', 240) || jf.img(series, 'Primary', 240); const n = s.ChildCount; return `<a class="season ${s.Id === cur.Id ? 'on' : ''}" href="#/item/${series.Id}/${s.Id}">${pic ? `<img loading="lazy" src="${esc(pic)}" alt="">` : ''}<span class="season-in"><b>${esc(s.Name)}</b>${n ? `<small>${n} episode${n === 1 ? '' : 's'}</small>` : ''}</span>${s.UserData?.Played ? `<span class="check">${icon('check')}</span>` : ''}</a>`; }).join('')}</div>
     <div class="episodes ${settings.app.covers ? 'big' : 'compact'}">${eps.map((e) => { const tp = tpInfo(e); return `<div class="ep" data-id="${e.Id}">
       ${settings.app.covers ? `<button class="card" data-play="${e.Id}" style="cursor:pointer"${tp ? ` data-tp="${esc(JSON.stringify(tp))}"` : ''}><div class="art">${jf.img(e, 'Thumb', 640) ? `<img loading="lazy" src="${esc(jf.img(e, 'Thumb', 640))}" alt="">` : `<span class="ph">${e.IndexNumber ?? ''}</span>`}<span class="tp"></span><span class="num">${e.IndexNumber ?? ''}</span>${e.RunTimeTicks ? `<span class="len">${esc(fmtRuntime(e.RunTimeTicks))}</span>` : ''}${e.UserData?.PlayedPercentage ? `<span class="bar"><i style="width:${e.UserData.PlayedPercentage}%"></i></span>` : ''}${e.UserData?.Played ? `<span class="check">${icon('check')}</span>` : ''}<span class="play-over"><span>${icon('play')}</span></span></div></button>` : `<button class="icon-btn play-sm" data-play="${e.Id}" title="Play">${icon('play')}</button>`}
       <div><h4>${e.IndexNumber ?? ''}. ${esc(e.Name)}</h4><p>${esc(e.Overview || '')}</p><small style="color:var(--dim)">${esc([fmtRuntime(e.RunTimeTicks), e.PremiereDate ? new Date(e.PremiereDate).toLocaleDateString() : ''].filter(Boolean).join(' · '))}</small></div>
@@ -299,8 +359,8 @@ route('search', async (q = '') => {
   q = q.trim();
   if (q.length < 2) return `<div class="empty"><h2>Search</h2><p>Type at least two letters in the search box.</p></div>`;
   const [watch, read, req] = await Promise.all([
-    jf.ready() ? jf.search(q).catch(() => ({ Items: [] })) : { Items: [] },
-    kv.ready() ? kv.search(q).catch(() => null) : null,
+    fromAll('jellyfin', () => jf.search(q)).then((Items) => ({ Items })),
+    Promise.all(groups.with('kavita').map((g) => Promise.resolve(groups.run(g, () => kv.search(q))).then((r) => ({ series: groups.tag(g, (r?.series || []).map((x) => ({ ...x }))) })).catch(() => null))).then((rs) => ({ series: rs.flatMap((r) => r?.series || []) })),
     rq.provider() ? rq.search(q).catch(() => null) : null,
   ]);
   const items = remember(watch.Items || []);
@@ -314,7 +374,7 @@ route('search', async (q = '') => {
   const html = [
     titles.length ? `<section class="row"><div class="row-head"><h3>On your server</h3></div><div class="grid">${titles.map((i) => card(i)).join('')}</div></section>` : '',
     eps.length ? shelf('Episodes', eps.map((i) => card(i, { wide: true })).join(''), '', true) : '',
-    series.length ? `<section class="row"><div class="row-head"><h3>To read</h3></div><div class="grid">${series.map((s) => readCard({ id: s.seriesId, name: s.name, libraryName: s.libraryName })).join('')}</div></section>` : '',
+    series.length ? `<section class="row"><div class="row-head"><h3>To read</h3></div><div class="grid">${series.map((s) => readCard({ id: s.seriesId, name: s.name, libraryName: s.libraryName, _g: s._g })).join('')}</div></section>` : '',
     people.length ? `<section class="row"><div class="row-head"><h3>People</h3></div><div class="people">${people.map((p) => `<a class="person" href="#/item/${p.Id}" style="text-decoration:none"><div class="face">${jf.img(p, 'Primary', 200) ? `<img loading="lazy" src="${esc(jf.img(p, 'Primary', 200))}" alt="">` : ''}</div><b>${esc(p.Name)}</b></a>`).join('')}</div></section>` : '',
     toRequest.length ? `<section class="row"><div class="row-head"><h3>Not here yet? Request it</h3></div><div class="grid">${toRequest.slice(0, 24).map(requestCard).join('')}</div></section>` : '',
     toReadRequest.length ? `<section class="row"><div class="row-head"><h3>Books, manga and comics to request</h3></div><div class="grid">${toReadRequest.slice(0, 24).map(requestCard).join('')}</div></section>` : '',
@@ -359,6 +419,7 @@ document.addEventListener('click', async (e) => {
     e.preventDefault(); e.stopPropagation();
     const id = playBtn.dataset.play;
     let it = cache.get(id);
+    if (it?._g) groups.use(it._g);
     if (!it || it.Type === 'Series') it = await jf.item(id).catch((err) => { toast(err.message, 'bad'); return null; });
     if (it?.Type === 'Series') { const n = await startEpisode(it.Id); if (n) it = n; }
     if (it) player.play(it).catch((err) => toast(err.message, 'bad'));

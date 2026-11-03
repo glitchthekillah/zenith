@@ -1,6 +1,6 @@
 // The video player: our own controls, subtitles, audio tracks, quality, speed,
 // chapters, skip intro, next episode, picture in picture and the mini player.
-import { $, esc, icon, fmtTime, settings, save, desktop, toast, emit, http } from './core.js';
+import { $, esc, icon, fmtTime, settings, save, desktop, toast, emit, http, groups } from './core.js';
 import * as jf from './jellyfin.js';
 import { pickAudio, pickSub, applySubStyle, cueHtml } from './tracks.js';
 
@@ -27,14 +27,33 @@ export const isOpen = () => !!S;
 // Open an item. queue: episodes that follow (for next episode and the episode list)
 export async function play(item, { start, queue = [] } = {}) {
   if (S) await close(true);
+  // Play from the server the item lives on, and keep talking to that one
+  if (item?._g) groups.use(item._g);
+  const gid = groups.active().id;
   const full = item.MediaSources ? item : await jf.item(item.Id);
   const resumeAt = start ?? (full.UserData?.PlaybackPositionTicks ? full.UserData.PlaybackPositionTicks / 1e7 : 0);
-  S = { item: full, queue, pb: null, hls: null, sub: null, audio: null, quality: settings.playback.maxBitrate, offset: 0, reported: 0, menu: null, segments: [], introShown: false, nextShown: false, startedAt: Date.now() };
+  S = { g: gid, item: full, queue, pb: null, hls: null, sub: null, audio: null, quality: settings.playback.maxBitrate, offset: 0, reported: 0, menu: null, segments: [], introShown: false, nextShown: false, startedAt: Date.now() };
   // Your languages first: English audio when there is any, otherwise English subtitles (Settings > Playback)
   const tr = listTracks(full);
   S.audio = pickAudio(tr.audio, tr.defaultAudio);
+  // Picked on the info page just before pressing play
+  const pre = (await import('./watch.js')).prePick;
+  if (pre && (pre.for === full.Id || pre.for === full.SeriesId)) {
+    if (pre.quality != null) S.quality = pre.quality;
+    if (pre.audio != null && pre.audio !== '') {
+      const byIndex = tr.audio.find((a) => String(a.index) === String(pre.audio));
+      const byLang = tr.audio.find((a) => a.lang && a.lang === pre.audio);
+      if (byIndex || byLang) S.audio = (byIndex || byLang).index;
+    }
+  }
   S.sub = pickSub(tr.subs, tr.audio.find((a) => a.index === S.audio));
+  if (pre && (pre.for === full.Id || pre.for === full.SeriesId) && pre.sub && pre.sub !== 'auto') {
+    if (pre.sub === 'off') S.sub = null;
+    else if (pre.sub.startsWith('lang:')) { const l = pre.sub.slice(5); const m = tr.subs.filter((x) => x.lang === l && !x.forced); S.sub = (m.find((x) => x.textBased) || m[0])?.index ?? S.sub; }
+    else if (tr.subs.some((x) => String(x.index) === pre.sub)) S.sub = Number(pre.sub);
+  }
   S.subTextOk = S.sub == null || !!tr.subs.find((x) => x.index === S.sub)?.textBased;
+  S.forceTranscode = !!S.quality;
   S.trackKnown = tr.audio.length + tr.subs.length > 0;
   document.body.classList.add('playing');
   build();
@@ -115,6 +134,7 @@ function build() {
 
 // Load (or reload) the stream at a position, with the current track and quality choices
 async function load(at = 0) {
+  groups.use(S.g);
   const v = S.v;
   spin(true);
   if (S.hls) { S.hls.destroy(); S.hls = null; }
@@ -310,7 +330,7 @@ export async function mini(on) {
   document.body.classList.toggle('mini', r.mini);
   $('[data-p=mini]', root())?.classList.toggle('on', r.mini);
 }
-function report(paused) { if (!S?.pb) return; S.reported = Date.now(); jf.reportProgress(S.item, S.pb, pos(), paused ?? S.v.paused); }
+function report(paused) { if (!S?.pb) return; groups.use(S.g); S.reported = Date.now(); jf.reportProgress(S.item, S.pb, pos(), paused ?? S.v.paused); }
 function discord() {
   if (!desktop || !S || !settings.app.discord) return;
   const it = S.item, ep = it.Type === 'Episode';
@@ -418,6 +438,7 @@ function fail(e) {
 
 export async function close(quiet) {
   if (!S) return;
+  groups.use(S.g);
   const s = S; S = null;
   try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); } catch {}
   if (document.body.classList.contains('mini')) { await desktop?.win('mini', false); document.body.classList.remove('mini'); }

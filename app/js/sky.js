@@ -80,18 +80,24 @@ void main(){
   gl.uniform2f(U('o'), R(-60, 60), R(-60, 60)); gl.uniform1f(U('a'), R(0, Math.PI * 2)); gl.uniform1f(U('k'), R(.8, 1.25));
   gl.uniform2f(U('L'), R(-.6, .6), R(-.35, .35)); gl.uniform2f(U('V'), R(.3, .7), R(.35, .7));
   const ur = U('r'), ut = U('t'), um = U('m');
-  const size = () => { const d = Math.min(devicePixelRatio || 1, 1.5) * .5; cv.width = Math.round(innerWidth * d); cv.height = Math.round(innerHeight * d); gl.viewport(0, 0, cv.width, cv.height); };
+  // Same look everywhere; on a slow graphics chip the sky quietly draws fewer pixels (it's soft anyway)
+  let quality = 1;
+  const size = () => { const d = Math.min(devicePixelRatio || 1, 1.5) * .5 * quality; cv.width = Math.round(innerWidth * d); cv.height = Math.round(innerHeight * d); gl.viewport(0, 0, cv.width, cv.height); };
   size(); addEventListener('resize', () => { size(); kick(); });
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let mx = 0, my = 0, sm = [0, 0], start = performance.now() - R(0, 600000), run = false, last = 0;
+  let mx = 0, my = 0, sm = [0, 0], start = performance.now() - R(0, 600000), run = false, last = 0, slow = 33, frames = 0;
   addEventListener('pointermove', (e) => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; }, { passive: true });
-  let scrolled = 0, st = 0; document.addEventListener('scroll', () => { scrolled = performance.now(); if (!st) document.body.classList.add('scrolling'); clearTimeout(st); st = setTimeout(() => { st = 0; document.body.classList.remove('scrolling'); }, 200); }, { passive: true, capture: true });
+  // Scrolling no longer touches the page (no class changes, no pauses): the sky just keeps drifting
   // Holds still while a video plays or the reader is open, so the GPU is free for them
   const still = () => reduce || document.body.classList.contains('calm') || document.body.classList.contains('playing') || document.body.classList.contains('mini');
   function draw(now) {
     run = false;
     if (document.hidden) return;
-    if (now - last > (now - scrolled < 250 ? 50 : 30)) {     // about 30 frames a second, 20 while scrolling so the page stays smooth
+    // About 30 frames a second, slower when the window isn't in front
+    const gap = !document.hasFocus() ? 120 : 33;
+    if (now - last > gap) {
+      // Watch how long frames really take: if the page can't keep up, draw the sky smaller (and back up when it can)
+      if (last) { const dt = now - last; slow = slow * 0.9 + dt * 0.1; if (++frames % 45 === 0) { if (slow > 52 && quality > 0.45) { quality = Math.max(0.45, quality * 0.8); size(); } else if (slow < 38 && quality < 1) { quality = Math.min(1, quality * 1.12); size(); } } }
       last = now;
       sm[0] += (mx - sm[0]) * .08; sm[1] += (my - sm[1]) * .08;
       gl.uniform2f(ur, cv.width, cv.height); gl.uniform1f(ut, (now - start) / 1000); gl.uniform2f(um, sm[0], sm[1]);
@@ -104,6 +110,7 @@ void main(){
   function frame() { gl.uniform2f(ur, cv.width, cv.height); gl.uniform1f(ut, (performance.now() - start) / 1000); gl.uniform2f(um, sm[0], sm[1]); gl.drawArrays(gl.TRIANGLES, 0, 3); }
   let first = true;
   new MutationObserver(() => glideTo(false)).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  try { const ext = gl.getExtension('WEBGL_debug_renderer_info'); window.zenithGpu = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); } catch {}
   window.zenithSky = { set(c) { const ok = Array.isArray(c) && c.length === 4; isDef = !ok || c.join() === DEF.join(); base = (ok ? c : DEF).map(hex); glideTo(first); first = false; kick(); } };
   document.addEventListener('visibilitychange', kick);
   new MutationObserver(kick).observe(document.body, { attributes: true, attributeFilter: ['class'] });

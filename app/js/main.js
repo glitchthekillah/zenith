@@ -6,12 +6,13 @@ import * as rq from './requests.js';
 import './watch.js';
 import './read.js';
 import './request.js';
-import { applyTheme, applySky } from './settings.js';
+import { applyTheme, applySky, applyAccent } from './settings.js';
 import { loadAvatar, avatarHtml } from './avatar.js';
 import { migrate, migrateStyle } from './tracks.js';
 import * as player from './player.js';
 
-applyTheme(); applySky();
+applyTheme(); applySky(); applyAccent();
+document.body.classList.toggle('calm', settings.app.liveSky === false);
 migrate(save); migrateStyle(save);
 loadAvatar().then(() => { if (!$('#top').hidden) topBar(); });
 
