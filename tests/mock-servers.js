@@ -13,7 +13,7 @@ const log = [];
 
 // ── Jellyfin ──
 const T = 24 * 1e7 * 40 / 24; // 40 s in ticks
-const mk = (id, name, type, extra = {}) => ({ Id: id, Name: name, Type: type, ImageTags: { Primary: 'p' }, BackdropImageTags: ['b'], ProductionYear: 2024, OfficialRating: 'PG-13', CommunityRating: 7.8, RunTimeTicks: 40 * 1e7, Overview: `${name} is a test title with a long enough description to fill a few lines on the page and in the hero banner.`, Genres: ['Drama', 'Sci-Fi'], UserData: { PlaybackPositionTicks: 0, Played: false, PlayedPercentage: 0, IsFavorite: false }, ...extra });
+const mk = (id, name, type, extra = {}) => ({ Id: id, Name: name, Type: type, ImageTags: { Primary: 'p' }, BackdropImageTags: ['b'], ProductionYear: 2024, OfficialRating: 'PG-13', CommunityRating: 7.8, RunTimeTicks: 40 * 1e7, Overview: `${name} is a test title with a long enough description to fill a few lines on the page and in the hero banner.`, Genres: ['Drama', 'Sci-Fi'], ProviderIds: { Tmdb: 'tm-' + id }, UserData: { PlaybackPositionTicks: 0, Played: false, PlayedPercentage: 0, IsFavorite: false }, ...extra });
 const movies = Array.from({ length: 14 }, (_, i) => mk(`m${i}`, ['Starfall', 'The Quiet Hour', 'Neon Harbor', 'Paper Moons', 'Long Way Home', 'Afterglow', 'Glass Garden', 'Night Market', 'Low Tide', 'Signal Fire', 'Echo Park', 'Northbound', 'Ember', 'Halcyon'][i], 'Movie'));
 movies[1].UserData = { PlaybackPositionTicks: 12 * 1e7, PlayedPercentage: 30, Played: false };
 const series = mk('s1', 'Orbit Station', 'Series', { Status: 'Continuing', RunTimeTicks: 0, UserData: { UnplayedItemCount: 5 } });
@@ -53,7 +53,8 @@ function jellyfin(req, res) {
   if (one) { const it = all.find((x) => x.Id === one[1]); return it ? send(res, 200, { ...it, People: [{ Id: 'pp1', Name: 'Ada Vale', Role: 'Captain', Type: 'Actor' }], Chapters: [{ Name: 'Opening', StartPositionTicks: 0 }, { Name: 'The middle', StartPositionTicks: 20e7 }] }) : send(res, 404, {}); }
   if (p === '/Users/u1/Items') {
     const t = u.searchParams.get('IncludeItemTypes') || '', s = (u.searchParams.get('SearchTerm') || '').toLowerCase();
-    let list = all.filter((x) => (!t || t.split(',').includes(x.Type)) && (!s || x.Name.toLowerCase().includes(s)));
+    const pv = u.searchParams.get('AnyProviderIdEquals') || '';
+    let list = all.filter((x) => (!t || t.split(',').includes(x.Type)) && (!s || x.Name.toLowerCase().includes(s)) && (!pv || pv === 'Tmdb.' + x.ProviderIds?.Tmdb));
     const start = Number(u.searchParams.get('StartIndex') || 0), lim = Number(u.searchParams.get('Limit') || 60);
     return send(res, 200, { Items: list.slice(start, start + lim), TotalRecordCount: list.length });
   }

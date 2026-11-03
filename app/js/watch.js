@@ -12,8 +12,43 @@ export const known = (id) => cache.get(id);
 // Ask every connected server (each group) and tag the results with where they came from
 const fromAll = async (kind, fn) => (await Promise.all(groups.with(kind).map((g) => Promise.resolve().then(() => groups.run(g, fn)).then((x) => groups.tag(g, Array.isArray(x) ? x : x?.Items || [])).catch(() => [])))).flat();
 const inGroup = (x, fn) => (x?._g ? groups.run(groups.byId(x._g), fn) : fn());
-const fromPill = (x, kind = 'jellyfin') => (x?._g && groups.many(kind) ? `<span class="from-pill">from ${esc(groups.nameOf(groups.byId(x._g)))}</span>` : '');
+const fromPill = (x, kind = 'jellyfin') => { if (!x?._g || !groups.many(kind)) return ''; const n = x._copies?.length > 1 ? placeNames(x) : [groups.nameOf(groups.byId(x._g))]; return `<span class="from-pill${n.length > 1 ? ' multi' : ''}">${n.length > 1 ? `on ${esc(n.join(' + '))}` : `from ${esc(n[0])}`}</span>`; };
 const recent = (a, b) => Date.parse(b.UserData?.LastPlayedDate || 0) - Date.parse(a.UserData?.LastPlayedDate || 0);
+
+// ── The same title on more than one server ────────────────────────────
+// Matched by the database IDs Jellyfin keeps (TMDB, IMDb, TVDB), never by name.
+const pid = (x, ...keys) => { const p = x?.ProviderIds || {}; for (const k of keys) { const v = p[k] || p[k[0].toUpperCase() + k.slice(1)]; if (v) return `${k}:${v}`; } return ''; };
+const showKey = (x) => pid(x, 'Tvdb', 'Tmdb', 'Imdb');
+export function titleKey(x) {
+  if (!x) return '';
+  if (x.Type === 'Movie') return pid(x, 'Tmdb', 'Imdb') && 'm|' + pid(x, 'Tmdb', 'Imdb');
+  if (x.Type === 'Series') return showKey(x) && 's|' + showKey(x);
+  if (x.Type === 'Episode') return x.SeriesName && x.ParentIndexNumber != null && x.IndexNumber != null ? `e|${x.SeriesName.toLowerCase()}|${x.ParentIndexNumber}|${x.IndexNumber}` : '';
+  return '';
+}
+const order = (x) => settings.groups.findIndex((g) => g.id === x._g);
+const progressOf = (x) => Date.parse(x.UserData?.LastPlayedDate || 0) || 0;
+// Keep one card per title: the copy you watched most recently, else the one on your own (first) server.
+// Every copy is kept on it as _copies so the info page can offer them.
+function mergeShows(list) {
+  const out = [], seen = new Set();
+  for (const x of list || []) { const k = x.SeriesName ? 'show|' + x.SeriesName.toLowerCase() : ''; if (k && seen.has(k)) continue; if (k) seen.add(k); out.push(x); }
+  return out;
+}
+export function merge(list) {
+  const out = [], seen = new Map();
+  for (const x of list || []) {
+    const k = titleKey(x);
+    if (!k) { out.push(x); continue; }
+    const at = seen.get(k);
+    if (at == null) { x._copies = [x]; seen.set(k, out.length); out.push(x); continue; }
+    const cur = out[at], copies = [...cur._copies, x];
+    const best = copies.slice().sort((a, b) => progressOf(b) - progressOf(a) || order(a) - order(b))[0];
+    best._copies = copies; out[at] = best;
+  }
+  return out;
+}
+const placeNames = (x) => [...new Set((x._copies || [x]).map((c) => groups.nameOf(groups.byId(c._g))))];
 
 // ── Cards ───────────────────────────────────────────────────────────────
 // Posters: episodes and seasons show their show's poster and name (episode stills look
@@ -61,14 +96,14 @@ route('home', async () => {
   const add = (order, html) => { if (html) parts.push({ order, html }); };
   if (jf.ready()) {
     tasks.push((async () => {
-      const [resume, next, views] = await Promise.all([fromAll('jellyfin', () => jf.resume(20)).then((l) => l.sort(recent).slice(0, 24)), fromAll('jellyfin', () => jf.nextUp(20)).then((l) => l.sort(recent).slice(0, 24)), fromAll('jellyfin', () => jf.views())]);
+      const [resume, next, views] = await Promise.all([fromAll('jellyfin', () => jf.resume(20)).then((l) => merge(l.sort(recent)).slice(0, 24)), fromAll('jellyfin', () => jf.nextUp(20)).then((l) => mergeShows(l.sort(recent)).slice(0, 24)), fromAll('jellyfin', () => jf.views())]);
       remember(resume); remember(next);
       stats.resume = resume.length; stats.next = next.length; resumeTop = resume[0] || next[0] || null;
       const libs = views.filter((v) => ['movies', 'tvshows', 'boxsets', 'homevideos', 'mixed', undefined].includes(v.CollectionType));
       const [latest, picks, top, because] = await Promise.all([
         Promise.all(libs.slice(0, 8).map((v) => Promise.resolve(inGroup(v, () => jf.latest(v.Id, 18))).then((items) => ({ v, items: remember(groups.tag(groups.byId(v._g) || groups.active(), items || [])) })).catch(() => ({ v, items: [] })))),
-        fromAll('jellyfin', () => jf.items({ types: 'Movie,Series', sort: 'Random', filters: 'IsUnplayed', limit: 18 })).then((l) => remember(l.sort(() => Math.random() - 0.5).slice(0, 24))),
-        fromAll('jellyfin', () => jf.items({ types: 'Movie,Series', sort: 'CommunityRating', order: 'Descending', limit: 18 })).then((l) => remember(l.sort((a, b) => (b.CommunityRating || 0) - (a.CommunityRating || 0)).slice(0, 24))),
+        fromAll('jellyfin', () => jf.items({ types: 'Movie,Series', sort: 'Random', filters: 'IsUnplayed', limit: 18 })).then((l) => remember(merge(l).sort(() => Math.random() - 0.5).slice(0, 24))),
+        fromAll('jellyfin', () => jf.items({ types: 'Movie,Series', sort: 'CommunityRating', order: 'Descending', limit: 18 })).then((l) => remember(merge(l).sort((a, b) => (b.CommunityRating || 0) - (a.CommunityRating || 0)).slice(0, 24))),
         (async () => { const seed = resume[0] || next[0]; if (!seed) return null; const id = seed.SeriesId || seed.Id; const items = remember(groups.tag(groups.byId(seed._g) || groups.active(), await Promise.resolve(inGroup(seed, () => jf.similar(id))).catch(() => []))); return items.length ? { name: seed.SeriesName || seed.Name, items } : null; })(),
       ]);
       shuffle = picks;
@@ -79,8 +114,11 @@ route('home', async () => {
       add(4, shelf('Next up', next.map((i) => card(i, { wide: true })).join(''), '', true));
       add(5, shelf('Picked for you', picks.map((i) => card(i)).join('')));
       add(6, because ? shelf(`Because you watched ${because.name}`, because.items.map((i) => card(i)).join('')) : '');
-      latest.forEach((x, n) => add(7 + n, shelf(`New in ${x.v.Name}${groups.many('jellyfin') && x.v._g ? ` · ${groups.nameOf(groups.byId(x.v._g))}` : ''}`, newCards(x.items), `#/library/${x.v.Id}${gsuf(x.v)}`)));
-      add(15, shelf('Top rated on your server', top.filter((i) => i.CommunityRating).map((i) => card(i, { badge: i.CommunityRating.toFixed(1) })).join('')));
+      // Libraries with the same name on different servers ("Anime" on Zenith and Andromeda) share one row
+      const rows = new Map();
+      for (const x of latest) { const k = `${x.v.CollectionType}|${String(x.v.Name).toLowerCase()}`; const r = rows.get(k); if (r) r.items.push(...x.items); else rows.set(k, { v: x.v, items: [...x.items], n: 1 }); }
+      [...rows.values()].forEach((x, n) => add(7 + n, shelf(`New in ${x.v.Name}`, newCards(merge(x.items)), `#/library/${x.v.Id}${gsuf(x.v)}`)));
+      add(15, shelf(groups.many('jellyfin') ? 'Top rated on your servers' : 'Top rated on your server', top.filter((i) => i.CommunityRating).map((i) => card(i, { badge: i.CommunityRating.toFixed(1) })).join('')));
     })());
   }
   if (groups.with('kavita').length) tasks.push((async () => {
@@ -174,11 +212,11 @@ async function fillLibrary(parentId, type, st, reset) {
     const gs = groups.with('jellyfin');
     let r;
     if (!parentId && gs.length > 1) {
-      if (reset) { st.starts = {}; st.totals = {}; }
+      if (reset) { st.starts = {}; st.totals = {}; st.seenKeys = new Set(); }
       const parts = await Promise.all(gs.map((g) => (st.totals[g.id] != null && (st.starts[g.id] || 0) >= st.totals[g.id]) ? { g, Items: [], TotalRecordCount: st.totals[g.id] }
         : Promise.resolve(groups.run(g, () => jf.items({ ...q, start: st.starts[g.id] || 0, limit: 40 }))).then((x) => ({ g, ...x })).catch(() => ({ g, Items: [], TotalRecordCount: 0 }))));
       for (const p of parts) { groups.tag(p.g, p.Items); st.starts[p.g.id] = (st.starts[p.g.id] || 0) + p.Items.length; st.totals[p.g.id] = p.TotalRecordCount; }
-      let items = parts.flatMap((p) => p.Items);
+      let items = merge(parts.flatMap((p) => p.Items).filter((x) => { const k = titleKey(x); if (!k) return true; if ((st.seenKeys ||= new Set()).has(k) && !reset) return false; st.seenKeys.add(k); return true; }));
       if (st.sort === 'SortName') items.sort((a, b) => (a.SortName || a.Name).localeCompare(b.SortName || b.Name) * (st.order === 'Ascending' ? 1 : -1));
       r = { Items: items, TotalRecordCount: parts.reduce((n, p) => n + p.TotalRecordCount, 0) };
       remember(r.Items);
@@ -244,6 +282,7 @@ route('item', async (id, seasonId) => {
     if (next) { playId = next.Id; cache.set(next.Id, next); resumeLabel = next.UserData?.PlaybackPositionTicks ? `Resume S${next.ParentIndexNumber} E${next.IndexNumber}` : next.fresh ? 'Start watching' : `Play S${next.ParentIndexNumber} E${next.IndexNumber}`; }
   } else if (it.UserData?.PlaybackPositionTicks) resumeLabel = `Resume from ${fmtTimeTicks(it.UserData.PlaybackPositionTicks)}`;
   const people = (it.People || []).filter((p) => ['Actor', 'Director', 'Writer'].includes(p.Type)).slice(0, 24);
+  const where = ['Movie', 'Series'].includes(it.Type) ? await copiesBlock(it) : '';
   const html = `<div class="detail">${back ? `<div class="backdrop"><img src="${esc(back)}" alt=""></div>` : ''}
   <div class="detail-in"><div class="art">${jf.img(it, 'Primary', 500) ? `<img src="${esc(jf.img(it, 'Primary', 500))}" alt="">` : `<div class="ph">${esc(it.Name)}</div>`}</div>
   <div>
@@ -251,6 +290,7 @@ route('item', async (id, seasonId) => {
     <h1>${esc(it.Name)}</h1>${it.Taglines?.[0] ? `<p class="tagline">${esc(it.Taglines[0])}</p>` : ''}
     <div class="facts">${facts.join('<span>·</span>')}</div>
     <p class="overview">${esc(it.Overview || '')}</p>
+    ${where}
     ${['Movie', 'Episode', 'Series'].includes(it.Type) ? await prePlay(it, playId) : ''}
     <div class="acts">
       ${it.Type !== 'BoxSet' ? `<button class="btn gold big" data-play="${playId}">${icon('play')} ${esc(resumeLabel)}</button>` : ''}
@@ -268,6 +308,27 @@ route('item', async (id, seasonId) => {
   return html;
 });
 const fmtTimeTicks = (t) => { const s = Math.floor(t / 1e7); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`; };
+// Which servers have this title, with the quality of each copy; pick one to watch from there
+const resLabel = (src) => { const v = (src?.MediaStreams || []).find((x) => x.Type === 'Video'); const h = v?.Height || 0, w = v?.Width || 0; return w >= 3200 || h >= 2000 ? '4K' : w >= 1800 || h >= 1000 ? '1080p' : w >= 1200 || h >= 700 ? '720p' : h ? `${h}p` : ''; };
+async function copiesBlock(it) {
+  if (groups.with('jellyfin').length < 2) return '';
+  const here = groups.active().id;
+  it._g ||= here;
+  const key = it.Type === 'Movie' ? pid(it, 'Tmdb', 'Imdb') : showKey(it);
+  if (!key) return '';
+  const [k, v] = key.split(':');
+  const prov = `${k[0].toUpperCase() + k.slice(1)}.${v}`;
+  const found = await Promise.all(groups.with('jellyfin').filter((g) => g.id !== here).map((g) => Promise.resolve(groups.run(g, () => jf.items({ provider: prov, types: it.Type, limit: 2 }))).then((r) => groups.tag(g, r.Items || [])[0] || null).catch(() => null)));
+  const copies = [it, ...found.filter(Boolean)];
+  groups.use(here);
+  if (copies.length < 2) return '';
+  // Quality of each copy (movies carry their file details; shows use their first episode's)
+  const detail = await Promise.all(copies.map((c) => c === it ? Promise.resolve(it) : Promise.resolve(groups.run(groups.byId(c._g), () => jf.item(c.Id))).catch(() => c)));
+  groups.use(here);
+  const best = (c) => { const d = detail[copies.indexOf(c)]; return c.Type === 'Movie' ? resLabel(d?.MediaSources?.[0]) : ''; };
+  return `<div class="copies"><span class="copies-lab">Watch on</span>${copies.map((c) => { const on = c._g === here, d = detail[copies.indexOf(c)]; const pct = d?.UserData?.PlayedPercentage; const q = best(c);
+    return `<a class="copy ${on ? 'on' : ''}" href="#/item/${c.Id}@${c._g}"><span class="copy-orb">${esc(groups.nameOf(groups.byId(c._g)).slice(0, 1).toUpperCase())}</span><span><b>${esc(groups.nameOf(groups.byId(c._g)))}</b><small>${[q, d?.UserData?.Played ? 'Watched' : pct ? `${Math.round(pct)}% watched` : '', d?.UserData?.LastPlayedDate ? 'last watched here' : ''].filter(Boolean).join(' · ') || 'Available'}</small></span>${on ? icon('check') : ''}</a>`; }).join('')}</div>`;
+}
 // Audio and quality pickers on the info page (start on your Settings defaults)
 const QUALS = [[0, 'Original quality'], [40e6, '1080p high'], [20e6, '1080p'], [8e6, '720p'], [4e6, '480p'], [1.5e6, 'Data saver']];
 export const prePick = { audio: null, quality: null, sub: null, for: null };
@@ -359,7 +420,7 @@ route('search', async (q = '') => {
   q = q.trim();
   if (q.length < 2) return `<div class="empty"><h2>Search</h2><p>Type at least two letters in the search box.</p></div>`;
   const [watch, read, req] = await Promise.all([
-    fromAll('jellyfin', () => jf.search(q)).then((Items) => ({ Items })),
+    fromAll('jellyfin', () => jf.search(q)).then((Items) => ({ Items: merge(Items) })),
     Promise.all(groups.with('kavita').map((g) => Promise.resolve(groups.run(g, () => kv.search(q))).then((r) => ({ series: groups.tag(g, (r?.series || []).map((x) => ({ ...x }))) })).catch(() => null))).then((rs) => ({ series: rs.flatMap((r) => r?.series || []) })),
     rq.provider() ? rq.search(q).catch(() => null) : null,
   ]);

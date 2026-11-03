@@ -36,7 +36,7 @@ export async function quickConnectPoll(url, secret) {
 }
 export async function signOut() { try { await api('/Sessions/Logout', { method: 'POST' }); } catch {} settings.servers.jellyfin = null; save(); }
 
-const FIELDS = 'PrimaryImageAspectRatio,Overview,Genres,CommunityRating,OfficialRating,ProductionYear,RunTimeTicks,UserData,ChildCount,SeriesInfo,ParentId,ImageTags,BackdropImageTags,ParentBackdropImageTags,SeriesPrimaryImageTag,EndDate,Status';
+const FIELDS = 'PrimaryImageAspectRatio,Overview,Genres,CommunityRating,OfficialRating,ProductionYear,RunTimeTicks,UserData,ChildCount,SeriesInfo,ParentId,ImageTags,BackdropImageTags,ParentBackdropImageTags,SeriesPrimaryImageTag,EndDate,Status,ProviderIds';
 const U = () => `/Users/${S().userId}`;
 export const views = () => api(`${U()}/Views`).then((r) => r.Items || []);
 export const resume = (limit = 16) => api(`${U()}/Items/Resume?Limit=${limit}&MediaTypes=Video&Fields=${FIELDS}&EnableImageTypes=Primary,Backdrop,Thumb`).then((r) => r.Items || []);
@@ -47,7 +47,7 @@ export const similar = (id) => api(`/Items/${id}/Similar?UserId=${S().userId}&Li
 export const seasons = (seriesId) => api(`/Shows/${seriesId}/Seasons?UserId=${S().userId}&Fields=${FIELDS}`).then((r) => r.Items || []);
 export const episodes = (seriesId, seasonId) => api(`/Shows/${seriesId}/Episodes?UserId=${S().userId}&SeasonId=${seasonId}&Fields=${FIELDS},MediaSources,Trickplay`).then((r) => r.Items || []);
 export const allEpisodes = (seriesId) => api(`/Shows/${seriesId}/Episodes?UserId=${S().userId}&Fields=${FIELDS}`).then((r) => r.Items || []);
-export function items({ parentId = '', types = '', sort = 'SortName', order = 'Ascending', start = 0, limit = 60, filters = '', genres = '', search = '', recursive = true, years = '' } = {}) {
+export function items({ parentId = '', types = '', sort = 'SortName', order = 'Ascending', start = 0, limit = 60, filters = '', genres = '', search = '', recursive = true, years = '', provider = '' } = {}) {
   const q = new URLSearchParams({ Recursive: recursive, Fields: FIELDS, SortBy: sort, SortOrder: order, StartIndex: start, Limit: limit, EnableImageTypes: 'Primary,Backdrop,Thumb', ImageTypeLimit: 1 });
   if (parentId) q.set('ParentId', parentId);
   if (types) q.set('IncludeItemTypes', types);
@@ -55,6 +55,7 @@ export function items({ parentId = '', types = '', sort = 'SortName', order = 'A
   if (genres) q.set('Genres', genres);
   if (years) q.set('Years', years);
   if (search) q.set('SearchTerm', search);
+  if (provider) q.set('AnyProviderIdEquals', provider);
   return api(`${U()}/Items?${q}`);
 }
 export const byPerson = (personId) => api(`${U()}/Items?PersonIds=${personId}&Recursive=true&IncludeItemTypes=Movie,Series&SortBy=PremiereDate&SortOrder=Descending&Fields=${FIELDS}`);

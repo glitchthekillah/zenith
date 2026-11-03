@@ -641,3 +641,15 @@ html.glide,html.glide *,html.glide *::before,html.glide *::after{transition:back
    they're nearly solid, so it looks the same and scrolling doesn't have to re-blur them every frame */
 .set-tabs{backdrop-filter:none;background:var(--panel)}
 :root[data-theme=light] #titlebar{background:rgba(246,244,251,.92)}
+
+/* The same title on several servers */
+.from-pill.multi{background:linear-gradient(90deg,rgba(var(--amber-rgb),.85),rgba(var(--pink-rgb),.85));color:var(--btn-ink)}
+.copies{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 16px}
+.copies-lab{font:600 11.5px var(--disp);letter-spacing:.14em;text-transform:uppercase;color:var(--amber);margin-right:4px}
+.copy{display:flex;align-items:center;gap:10px;padding:7px 14px 7px 7px;border-radius:14px;border:1px solid var(--line2);background:rgba(7,7,13,.45);color:inherit;text-decoration:none;transition:border-color .2s,transform .2s,background .2s}
+.copy:hover{transform:translateY(-2px);border-color:rgba(var(--amber-rgb),.6)}
+.copy.on{border-color:var(--amber);background:rgba(var(--amber-rgb),.12)}
+.copy-orb{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:var(--grad);color:var(--btn-ink);font:700 14px var(--disp)}
+.copy b{display:block;font:600 14px var(--disp)}.copy small{display:block;color:var(--mute);font-size:11.5px}
+.copy .i{width:16px;height:16px;color:var(--amber)}
+:root[data-theme=light] .copy{background:rgba(255,255,255,.7)}
