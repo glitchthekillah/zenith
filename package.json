@@ -1,6 +1,6 @@
 {
   "name": "zenith",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Watch, read and request from your own Jellyfin, Kavita and Seerr servers. One app, with picture in picture.",
   "main": "electron/main.js",
   "scripts": {
