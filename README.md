@@ -17,11 +17,15 @@ Nothing goes through anyone else: the app talks only to the servers you sign in 
 
 Get the newest version from the [Releases page](../../releases/latest).
 
-- **Windows:** `Zenith-Setup-x.y.z.exe`. Updates install by themselves.
-- **Linux, any distro (Bazzite, SteamOS, Fedora, Arch...):** `Zenith-x.y.z-x86_64.AppImage`. Make it executable (right click, Properties, "Allow executing", or `chmod +x Zenith-*.AppImage`) and open it. Updates install by themselves.
-- **Linux Mint, Ubuntu, Debian:** `Zenith-x.y.z-amd64.deb`. Double-click to install. The app tells you when a new version is out.
+- **Windows:** `Zenith_x.y.z_x64-setup.exe`. Updates install by themselves.
+- **Linux, any distro (Bazzite, SteamOS, Fedora, Arch...):** `Zenith_x.y.z_amd64.AppImage`. Make it executable (right click, Properties, "Allow executing", or `chmod +x Zenith_*.AppImage`) and open it. Updates install by themselves.
+- **Linux Mint, Ubuntu, Debian:** `Zenith_x.y.z_amd64.deb`. Double-click to install. The app tells you when a new version is out.
 
 On Bazzite and other immutable systems, use the AppImage. Gear Lever (from Flathub) can add it to your app menu.
+
+On Linux, video plays through GStreamer. If HEVC (H.265) files won't direct play, install your distro's `gstreamer1.0-libav` (or `gst-libav`) package, or Zenith asks the server to convert them.
+
+Coming from the old Electron version? Your settings and sign-ins move over by themselves on first launch. Uninstall the old version afterwards.
 
 ## Features
 
@@ -88,20 +92,24 @@ ZENITH_HOSTS=https://jellyfin.example.com,https://kavita.example.com,https://see
 
 ## For developers
 
+Needs [Node.js](https://nodejs.org) and [Rust](https://rustup.rs). On Windows also the "Desktop development with C++" workload from the Visual Studio Build Tools. On Linux, the [Tauri packages](https://v2.tauri.app/start/prerequisites/#linux).
+
 ```
 npm install
 npm start               # run the desktop app
 npm run web             # run the web version
+npm test                # tests (JavaScript and Rust)
 node tests/mock-servers.js   # fake Jellyfin, Kavita and ask servers for testing
 ```
 
-The interface is plain HTML, CSS and JavaScript modules in `app/`, with no build step. `electron/` is the desktop shell, `server/serve.js` the web server, and `shared/http.js` the request code both use.
+The interface is plain HTML, CSS and JavaScript modules in `app/`, with no build step. `src-tauri/` is the desktop shell (Tauri, Rust) and `app/js/desktop.js` connects the two. `server/serve.js` is the web server and `shared/http.js` its request code.
 
 ### Releasing a new version
 
-1. Change `version` in `package.json` (for example `0.2.0`) and commit.
-2. Tag it and push: `git tag v0.2.0 && git push origin main v0.2.0`
-3. GitHub Actions builds the Windows installer, the AppImage and the .deb, and publishes them as a release. Installed apps pick it up within a few hours, or right away from Settings, Check now.
+1. Once: make an update signing key with `npx tauri signer generate -w "$HOME/.tauri/zenith.key"` (press Enter twice for no password). Keep that file safe: without it, installed apps can't update.
+2. Change `version` in `package.json` and `VERSION` in `app/js/core.js`.
+3. `npm run dist` on Windows (Setup .exe) and on Linux (AppImage and .deb). Everything to upload lands in `dist/`, including `latest.json`. Copy the first `dist/latest.json` to the other computer's `dist/` before building there, so both platforms end up in one file.
+4. Make a GitHub release tagged `v` plus the version (for example `v0.2.0`) and upload the files from `dist/`. Installed apps pick it up within a few hours, or right away from Settings, Check now.
 
 ### Discord status (optional)
 
@@ -111,7 +119,7 @@ Create an application at the [Discord Developer Portal](https://discord.com/deve
 
 - [hls.js](https://github.com/video-dev/hls.js) (Apache 2.0) for converted streams
 - Inter, Space Grotesk and JetBrains Mono fonts (SIL Open Font License)
-- Built on [Electron](https://www.electronjs.org)
+- Built on [Tauri](https://tauri.app)
 
 Not affiliated with Jellyfin, Kavita or Seerr.
 

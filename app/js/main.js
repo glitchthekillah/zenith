@@ -10,8 +10,10 @@ import { applyTheme, applySky, applyAccent } from './settings.js';
 import { loadAvatar, avatarHtml } from './avatar.js';
 import { migrate, migrateStyle } from './tracks.js';
 import * as player from './player.js';
+import { watch as watchBlurhash } from './blurhash.js';
 
 applyTheme(); applySky(); applyAccent();
+watchBlurhash();
 document.body.classList.toggle('calm', settings.app.liveSky === false);
 migrate(save); migrateStyle(save);
 loadAvatar().then(() => { if (!$('#top').hidden) topBar(); });
@@ -27,7 +29,7 @@ if (desktop) {
     if (a === 'pin') { const on = !b.classList.contains('on'); paint(await desktop.win('pin', on)); toast(on ? 'Zenith stays on top of other windows' : 'Back to normal'); return; }
     paint((await desktop.win(a)) || {});
   });
-  $('#titlebar .tb-drag').addEventListener('dblclick', async () => paint(await desktop.win('maximize')));
+  $('#titlebar').addEventListener('dblclick', async (e) => { if (!e.target.closest('.tb-buttons')) paint(await desktop.win('maximize')); });
   desktop.on((ch, d) => { if (ch === 'window' && 'maximized' in d) paint(d); });
   desktop.win('state').then((s) => s && paint(s));
 }

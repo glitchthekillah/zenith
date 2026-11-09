@@ -1,91 +1,28 @@
 {
   "name": "zenith",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Watch, read and request from your own Jellyfin, Kavita and Seerr servers. One app, with picture in picture.",
-  "main": "electron/main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "tauri dev",
     "web": "node server/serve.js",
-    "dist": "electron-builder",
-    "test": "node --test tests/"
+    "dist": "node scripts/dist.mjs",
+    "icons": "tauri icon build/icon.png",
+    "test": "node --test \"tests/*.test.cjs\" && cargo test --manifest-path src-tauri/Cargo.toml",
+    "release": "node scripts/release.mjs"
   },
   "keywords": [],
   "author": "glitch",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^33.4.11",
-    "electron-builder": "^25.1.8",
+    "@tauri-apps/cli": "^2.12.4",
     "hls.js": "^1.7.4"
-  },
-  "dependencies": {
-    "electron-updater": "^6.8.11"
-  },
-  "productName": "Zenith",
-  "build": {
-    "appId": "com.glitch.zenith",
-    "productName": "Zenith",
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "files": [
-      "electron/**",
-      "app/**",
-      "shared/**",
-      "package.json",
-      "build/icon.png",
-      "build/icon.ico"
-    ],
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "glitchthekillah",
-        "repo": "zenith"
-      }
-    ],
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "icon": "build/icon.ico",
-      "executableName": "Zenith App"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "artifactName": "Zenith-Setup-${version}.${ext}"
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "AudioVideo",
-      "icon": "build/icon.png",
-      "artifactName": "Zenith-${version}-${arch}.${ext}",
-      "synopsis": "Watch, read and request from your own servers",
-      "maintainer": "glitch",
-      "executableName": "zenith"
-    },
-    "deb": {
-      "depends": [
-        "libnotify4",
-        "libxtst6",
-        "libnss3"
-      ]
-    },
-    "extraResources": [
-      {
-        "from": "build/icon.ico",
-        "to": "icon.ico"
-      }
-    ]
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/glitchthekillah/zenith"
   },
   "zenith": {
+    "repo": "glitchthekillah/zenith",
     "discordClientId": ""
   }
 }

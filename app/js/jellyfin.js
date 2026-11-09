@@ -1,5 +1,6 @@
 // Jellyfin: sign-in, libraries, items, playback info and progress reports.
 import { http, settings, save, deviceId, VERSION, desktop } from './core.js';
+import { collect } from './blurhash.js';
 
 import { groups } from './core.js';
 const S = () => groups.srv('jellyfin');
@@ -8,7 +9,7 @@ const SI = (it) => (it?._g && groups.byId(it._g)?.servers?.jellyfin) || S();
 const CLIENT = desktop ? 'Zenith Desktop' : 'Zenith Web';
 const DEVICE = desktop ? (navigator.userAgentData?.platform || 'Desktop') : 'Browser';
 const authHeader = (token) => `MediaBrowser Client="${CLIENT}", Device="${DEVICE}", DeviceId="${deviceId}", Version="${VERSION}"${token ? `, Token="${token}"` : ''}`;
-const api = (path, opts = {}) => http(S().url + path, { ...opts, headers: { Authorization: authHeader(S().token), ...(opts.headers || {}) } });
+const api = (path, opts = {}) => http(S().url + path, { ...opts, headers: { Authorization: authHeader(S().token), ...(opts.headers || {}) } }).then((d) => { collect(d); return d; });
 export const ready = () => !!S()?.token;
 
 export async function publicInfo(url) { return http(url + '/System/Info/Public'); }

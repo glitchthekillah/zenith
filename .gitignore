@@ -9,3 +9,5 @@ dist-current/
 *.zip
 .env
 .env.*
+src-tauri/target/
+src-tauri/gen/

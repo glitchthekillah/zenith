@@ -1,20 +1,4 @@
 'use strict';
-// Runs only in the selected Kavita origin. SSO accounts use an HttpOnly cookie.
-async function probe() {
-  for (let i = 0; i < localStorage.length; i++) {
-    try {
-      const v = JSON.parse(localStorage.getItem(localStorage.key(i)));
-      if (v && typeof v.token === 'string' && v.token && v.apiKey)
-        return { token: v.token, refreshToken: v.refreshToken || '', apiKey: v.apiKey, username: v.username || '' };
-    } catch {}
-  }
-  try {
-    const r = await fetch('/api/Account', { credentials: 'include', cache: 'no-store' });
-    if (!r.ok) return null;
-    const v = await r.json();
-    if (typeof v?.username !== 'string' || !v.username) return null;
-    const image = v.authKeys?.find(k => k.name === 'image-only')?.key;
-    return { cookie: true, token: '', refreshToken: '', apiKey: image || v.apiKey || '', username: v.username };
-  } catch { return null; }
-}
-module.exports = { probeScript: '(' + probe.toString() + ')()' };
+// The probe lives in kavita-probe.js so the desktop app (Rust) and the tests share one copy.
+const src = require('fs').readFileSync(require('path').join(__dirname, 'kavita-probe.js'), 'utf8').trim();
+module.exports = { probeScript: '(' + src + ')()' };

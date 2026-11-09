@@ -284,7 +284,7 @@ route('item', async (id, seasonId) => {
   const people = (it.People || []).filter((p) => ['Actor', 'Director', 'Writer'].includes(p.Type)).slice(0, 24);
   const where = ['Movie', 'Series'].includes(it.Type) ? await copiesBlock(it) : '';
   const html = `<div class="detail">${back ? `<div class="backdrop"><img src="${esc(back)}" alt=""></div>` : ''}
-  <div class="detail-in"><div class="art">${jf.img(it, 'Primary', 500) ? `<img src="${esc(jf.img(it, 'Primary', 500))}" alt="">` : `<div class="ph">${esc(it.Name)}</div>`}</div>
+  <div class="detail-in${it.Type === 'Episode' ? ' ep-detail' : ''}"><div class="art${it.Type === 'Episode' ? ' wide' : ''}">${jf.img(it, it.Type === 'Episode' ? 'Thumb' : 'Primary', it.Type === 'Episode' ? 840 : 500) ? `<img src="${esc(jf.img(it, it.Type === 'Episode' ? 'Thumb' : 'Primary', it.Type === 'Episode' ? 840 : 500))}" alt="">` : `<div class="ph">${esc(it.Name)}</div>`}</div>
   <div>
     ${ep ? `<a class="kicker" href="#/item/${it.SeriesId}" style="text-decoration:none">${esc(it.SeriesName)} · S${it.ParentIndexNumber} E${it.IndexNumber}</a>` : `<span class="kicker">${esc(it.Type === 'Series' ? 'Show' : it.Type === 'BoxSet' ? 'Collection' : it.Type)}</span>`}
     <h1>${esc(it.Name)}</h1>${it.Taglines?.[0] ? `<p class="tagline">${esc(it.Taglines[0])}</p>` : ''}
@@ -377,6 +377,26 @@ async function seasonsBlock(series, seasonId) {
       <div class="acts"><button class="icon-btn ${e.UserData?.Played ? 'on' : ''}" data-watched="${e.Id}" title="Mark watched">${icon('check')}</button>${desktop ? `<button class="icon-btn" data-download="${e.Id}" title="Download">${icon('download')}</button>` : ''}</div>
     </div>`; }).join('')}</div></section>`;
 }
+// Picking a season swaps only the episode list, so the page and the season row keep their scroll
+document.addEventListener('click', async (e) => {
+  const a = e.target.closest?.('.season-pick a.season');
+  if (!a || e.button || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  e.preventDefault();
+  if (a.classList.contains('on')) return;
+  const href = a.getAttribute('href'), [seriesId, seasonId] = href.replace(/^#\/item\//, '').split('/');
+  const sec = a.closest('section.row'), left = a.closest('.season-pick').scrollLeft;
+  sec.querySelector('.season.on')?.classList.remove('on'); a.classList.add('on');
+  try {
+    const series = cache.get(seriesId) || await jf.item(seriesId);
+    const html = await seasonsBlock(series, seasonId);
+    if (!sec.isConnected) return;
+    const box = document.createElement('div'); box.innerHTML = html;
+    const fresh = box.firstElementChild; if (!fresh) return;
+    sec.replaceWith(fresh);
+    fresh.querySelector('.season-pick').scrollLeft = left;
+    history.replaceState(null, '', href);
+  } catch { location.hash = href; }
+});
 // Trickplay frames for the hover preview (Jellyfin 10.9+)
 function tpInfo(e) {
   const bySource = e.Trickplay && Object.values(e.Trickplay)[0];

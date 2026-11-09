@@ -162,8 +162,15 @@ async function load(at = 0) {
       const hls = new window.Hls({ maxBufferLength: 60, backBufferLength: 60, startPosition: 0 });
       S.hls = hls;
       hls.on(window.Hls.Events.ERROR, (e, d) => { if (d.fatal) { if (d.type === 'networkError') hls.startLoad(); else if (d.type === 'mediaError') hls.recoverMediaError(); else fail(new Error('The stream stopped. Try a lower quality.')); } });
+      // Most servers send the whole episode in the playlist (it starts at 0, not at the resume point):
+      // then jump to the resume point ourselves, or it starts from the beginning while the bar says otherwise
+      hls.once(window.Hls.Events.LEVEL_LOADED, (e, d) => {
+        if (!S || S.hls !== hls || !at) return;
+        const total = d.details?.totalduration || 0, full = S.item.RunTimeTicks ? S.item.RunTimeTicks / 1e7 : 0;
+        if (full && total > full - at + 30) { S.offset = 0; v.currentTime = at; applySubtitles(); }
+      });
       hls.loadSource(pb.url); hls.attachMedia(v);
-    } else v.src = pb.url; // Safari plays HLS natively
+    } else { v.src = pb.url; v.addEventListener('loadedmetadata', () => { if (at && S?.item.RunTimeTicks && v.duration > S.item.RunTimeTicks / 1e7 - at + 30) { S.offset = 0; v.currentTime = at; applySubtitles(); } }, { once: true }); } // Safari plays HLS natively
   } else {
     v.src = pb.url;
     v.addEventListener('loadedmetadata', () => { if (at) v.currentTime = at; pickFileAudio(); }, { once: true });
