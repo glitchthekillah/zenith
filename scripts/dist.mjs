@@ -55,7 +55,9 @@ if (process.platform === 'win32' && fs.existsSync(exe)) {
 
 // Linux builds made on another computer and copied into dist/ get signed here with your key
 if (signed) for (const f of fs.readdirSync(out)) {
-  if (!f.includes(version) || !f.endsWith('.AppImage') || fs.existsSync(path.join(out, f + '.sig'))) continue;
+  const sig = path.join(out, f + '.sig');
+  if (!f.includes(version) || !f.endsWith('.AppImage')) continue;
+  if (fs.existsSync(sig) && fs.statSync(sig).mtimeMs >= fs.statSync(path.join(out, f)).mtimeMs) continue; // already signed
   // With the key file, pass only the file (the CLI refuses a key given twice)
   const useFile = fs.existsSync(keyFile), signEnv = { ...env };
   if (useFile) delete signEnv.TAURI_SIGNING_PRIVATE_KEY;

@@ -84,7 +84,18 @@ void main(){
   const size = () => { const d = Math.min(devicePixelRatio || 1, 1.5) * .5; cv.width = Math.round(innerWidth * d); cv.height = Math.round(innerHeight * d); gl.viewport(0, 0, cv.width, cv.height); };
   size(); addEventListener('resize', () => { size(); kick(); });
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let mx = 0, my = 0, sm = [0, 0], start = performance.now() - R(0, 600000), run = false, last = -Infinity;
+  let mx = 0, my = 0, sm = [0, 0], run = false, last = -Infinity;
+  // The sky's own clock. It eases down to a crawl when Zenith is in the background
+  // (where the system only allows a few frames a second) and back up when you return.
+  let simT = R(0, 600), speed = document.hasFocus() ? 1 : 0.04, tick = performance.now();
+  const RAMP = 1.4; // seconds to ease most of the way
+  const advance = (now) => {
+    const dt = Math.min(0.25, Math.max(0, (now - tick) / 1000)); tick = now;
+    const want = document.hasFocus() ? 1 : 0.04;
+    speed += (want - speed) * (1 - Math.exp(-dt * 3 / RAMP));
+    simT += dt * speed;
+    return simT;
+  };
   addEventListener('pointermove', (e) => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; }, { passive: true });
   // Native scroll activity gives foreground content more rendering time.
   // Holds still while a video plays or the reader is open, so the GPU is free for them
@@ -92,24 +103,26 @@ void main(){
   function draw(now) {
     run = false;
     if (document.hidden) return;
-    // About 30 frames a second, slower when the window isn't in front
-    const gap = !document.hasFocus() ? 120 : document.body.classList.contains('scrolling') ? 50 : 33;
+    // About 30 frames a second. In the background, fewer, but only once the sky has slowed
+    // down enough that it doesn't look choppy.
+    const gap = !document.hasFocus() && speed < 0.15 ? 150 : document.body.classList.contains('scrolling') ? 50 : 33;
     if (now - last > gap) {
       last = now;
       sm[0] += (mx - sm[0]) * .08; sm[1] += (my - sm[1]) * .08;
-      gl.uniform2f(ur, cv.width, cv.height); gl.uniform1f(ut, (now - start) / 1000); gl.uniform2f(um, sm[0], sm[1]);
+      gl.uniform2f(ur, cv.width, cv.height); gl.uniform1f(ut, advance(now)); gl.uniform2f(um, sm[0], sm[1]);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     if (!still()) kick();
   }
   function kick() { if (!run) { run = true; requestAnimationFrame(draw); } }
   // One frame right now (used while colours glide, even when the sky is holding still)
-  function frame() { gl.uniform2f(ur, cv.width, cv.height); gl.uniform1f(ut, (performance.now() - start) / 1000); gl.uniform2f(um, sm[0], sm[1]); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+  function frame() { gl.uniform2f(ur, cv.width, cv.height); gl.uniform1f(ut, simT); gl.uniform2f(um, sm[0], sm[1]); gl.drawArrays(gl.TRIANGLES, 0, 3); }
   let first = true;
   new MutationObserver(() => glideTo(false)).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   try { const ext = gl.getExtension('WEBGL_debug_renderer_info'); window.zenithGpu = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); } catch {}
   window.zenithSky = { set(c) { const ok = Array.isArray(c) && c.length === 4; isDef = !ok || c.join() === DEF.join(); base = (ok ? c : DEF).map(hex); glideTo(first); first = false; kick(); } };
-  document.addEventListener('visibilitychange', kick);
+  document.addEventListener('visibilitychange', () => { tick = performance.now(); kick(); });
+  addEventListener('focus', kick); addEventListener('blur', kick);
   new MutationObserver(kick).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   kick();
 })();
