@@ -87,11 +87,12 @@ void main(){
   let mx = 0, my = 0, sm = [0, 0], run = false, last = -Infinity;
   // The sky's own clock. It eases down to a crawl when Zenith is in the background
   // (where the system only allows a few frames a second) and back up when you return.
-  let simT = R(0, 600), speed = document.hasFocus() ? 1 : 0.04, tick = performance.now();
+  const isFocused = () => (window.zenithDesktop?.focused ? window.zenithDesktop.focused() : document.hasFocus());
+  let simT = R(0, 600), speed = isFocused() ? 1 : 0.04, tick = performance.now();
   const RAMP = 1.4; // seconds to ease most of the way
   const advance = (now) => {
     const dt = Math.min(0.25, Math.max(0, (now - tick) / 1000)); tick = now;
-    const want = document.hasFocus() ? 1 : 0.04;
+    const want = isFocused() ? 1 : 0.04;
     speed += (want - speed) * (1 - Math.exp(-dt * 3 / RAMP));
     simT += dt * speed;
     return simT;
@@ -105,7 +106,7 @@ void main(){
     if (document.hidden) return;
     // About 30 frames a second. In the background, fewer, but only once the sky has slowed
     // down enough that it doesn't look choppy.
-    const gap = !document.hasFocus() && speed < 0.15 ? 150 : document.body.classList.contains('scrolling') ? 50 : 33;
+    const gap = !isFocused() && speed < 0.15 ? 150 : document.body.classList.contains('scrolling') ? 50 : 33;
     if (now - last > gap) {
       last = now;
       sm[0] += (mx - sm[0]) * .08; sm[1] += (my - sm[1]) * .08;
@@ -123,6 +124,7 @@ void main(){
   window.zenithSky = { set(c) { const ok = Array.isArray(c) && c.length === 4; isDef = !ok || c.join() === DEF.join(); base = (ok ? c : DEF).map(hex); glideTo(first); first = false; kick(); } };
   document.addEventListener('visibilitychange', () => { tick = performance.now(); kick(); });
   addEventListener('focus', kick); addEventListener('blur', kick);
+  addEventListener('zenith-focus', kick); addEventListener('zenith-blur', kick);
   new MutationObserver(kick).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   kick();
 })();

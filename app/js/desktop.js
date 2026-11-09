@@ -31,7 +31,18 @@
     discord: (activity) => invoke('discord_set', { activity: activity || null }),
     webLogin: (url) => invoke('web_login', { url }),
     on: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
+    focused: () => focused,
   };
+
+  // Whether the Zenith window is the one in front. document.hasFocus() isn't reliable inside
+  // the Windows webview, so ask the window itself. Tells the page with zenith-focus / zenith-blur.
+  let focused = true;
+  try {
+    T.window.getCurrentWindow().onFocusChanged(({ payload }) => {
+      focused = !!payload;
+      window.dispatchEvent(new Event(focused ? 'zenith-focus' : 'zenith-blur'));
+    }).catch(() => {});
+  } catch {}
 
   // Dragging the window: the title bar, and in the mini player its top bar and the video
   // (what -webkit-app-region did in Electron). Buttons and menus stay clickable.
