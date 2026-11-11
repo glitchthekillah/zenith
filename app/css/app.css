@@ -686,3 +686,9 @@ body.scrolling .card:hover:not(:focus-visible) .play-over{opacity:0;transition:n
 .hero.hero-split .hero-slide img{position:static;width:100%;height:100%;object-fit:contain;animation:none;border-radius:0}
 .hero-split .hero-dots{bottom:18px;right:22px;z-index:3}
 @media(max-width:860px){.hero-split .hero-slide{grid-template-columns:minmax(0,1fr)}.hero-split .hero-art{grid-row:1}.hero-split .hero-in{grid-row:2;padding:22px}.hero-split .hero-dots{top:14px;bottom:auto;right:16px}.hero-split .hero-in h2{font-size:28px}}
+
+/* Reserve the server selector's space while optional copy lookups finish. */
+.copies-loading{min-height:64px}
+.copy-pending{display:inline-flex;align-items:center;gap:10px;padding:14px 18px;border:1px solid var(--line);border-radius:17px;color:var(--mute);background:var(--glass)}
+.copy-spinner{width:17px;height:17px;flex:none;border:2px solid rgba(var(--amber-rgb),.2);border-top-color:var(--amber);border-radius:50%;animation:spin .85s linear infinite}
+@media(prefers-reduced-motion:reduce){.copy-spinner{animation:none}}

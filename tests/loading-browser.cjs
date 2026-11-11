@@ -68,6 +68,9 @@ const start=(file,env={})=>{const c=spawn(process.execPath,[file],{cwd:root,env:
   await page.locator('#lib-grid .card:not(.skeleton)').first().waitFor({timeout:1500});console.log('Movies first titles:',Date.now()-t,'ms (genres and secondary server pending)');
   t=Date.now();await page.locator('#lib-grid a[href*="/item/"] b').first().click();
   await page.locator('.detail-in button[data-play]').first().waitFor({timeout:1500});console.log('Movie Play available:',Date.now()-t,'ms (recommendations and other copies pending)');
+  await page.locator('.copies-loading[role="status"]').waitFor({timeout:1000});
+  assert.match(await page.locator('.copy-pending').textContent(),/Checking available servers/);
+  assert.equal(await page.locator('.copy-spinner').evaluate(el=>getComputedStyle(el).animationName),'spin');
   await page.locator('.detail-in button[data-play]').first().click();
   await page.waitForFunction(()=>{const v=document.querySelector('#player video');return v&&v.currentTime>0&&v.videoWidth>0;},{},{timeout:6000});
   console.log('Playback: video decoded and advanced');
@@ -95,6 +98,8 @@ const start=(file,env={})=>{const c=spawn(process.execPath,[file],{cwd:root,env:
   await page.evaluate(()=>{location.hash='#/item/m0@g1';});
   await page.locator('.copy[href="#/item/copy0@g2"]').waitFor({timeout:2000});
   assert.equal(await page.locator('.copy[href="#/item/m0@g2"]').count(),0,'wrong movie offered as a copy');
+  assert.equal(await page.locator('.copies-loading').count(),0,'server loading indicator remained after results arrived');
+  console.log('Server picker shows animated loading feedback and clears it when verified options arrive');
   await page.locator('.copy[href="#/item/copy0@g2"]').click();
   await page.waitForFunction(()=>location.hash==='#/item/copy0@g2'&&document.querySelector('.detail h1')?.textContent==='Starfall');
   await page.locator('.detail-in button[data-play]').click();

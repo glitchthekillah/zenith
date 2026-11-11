@@ -335,7 +335,7 @@ route('item', async (id, seasonId) => {
   const facts = [it.ProductionYear, it.OfficialRating ? `<span class="pill">${esc(it.OfficialRating)}</span>` : '', fmtRuntime(it.RunTimeTicks), it.CommunityRating ? `<span class="star">${icon('star')} ${it.CommunityRating.toFixed(1)}</span>` : '', (it.Genres || []).slice(0, 3).join(', '), it.Type === 'Series' && it.Status ? (it.Status === 'Continuing' ? 'Ongoing' : 'Ended') : ''].filter(Boolean);
   const ep = it.Type === 'Episode';
   const people = (it.People || []).filter((p) => ['Actor', 'Director', 'Writer'].includes(p.Type)).slice(0, 24);
-  const where = ['Movie', 'Series'].includes(it.Type) ? defer(() => copiesBlock(it, owner)) : '';
+  const where = ['Movie', 'Series'].includes(it.Type) ? defer(() => copiesBlock(it, owner), copiesLoading(it)) : '';
   const html = `<div class="detail">${back ? `<div class="backdrop"><img src="${esc(back)}" alt=""></div>` : ''}
   <div class="detail-in${it.Type === 'Episode' ? ' ep-detail' : ''}"><div class="art${it.Type === 'Episode' ? ' wide' : ''}">${jf.img(it, it.Type === 'Episode' ? 'Thumb' : 'Primary', it.Type === 'Episode' ? 840 : 500) ? `<img src="${esc(jf.img(it, it.Type === 'Episode' ? 'Thumb' : 'Primary', it.Type === 'Episode' ? 840 : 500))}" alt="">` : `<div class="ph">${esc(it.Name)}</div>`}</div>
   <div>
@@ -379,6 +379,10 @@ function sameTitle(a, b) {
   const left = ids(a), right = ids(b);
   const shared = ['tmdb', 'imdb', 'tvdb'].filter((k) => left[k] && right[k]);
   return shared.length > 0 && shared.every((k) => left[k] === right[k]);
+}
+function copiesLoading(it) {
+  if (groups.with('jellyfin').length < 2 || !(it.Type === 'Movie' ? pid(it, 'Tmdb', 'Imdb') : showKey(it))) return '';
+  return `<div class="copies copies-loading" role="status" aria-live="polite"><span class="copies-lab">Watch on</span><span class="copy-pending"><span class="copy-spinner" aria-hidden="true"></span>Checking available servers…</span></div>`;
 }
 async function copiesBlock(it, owner = groups.active()) {
   if (groups.with('jellyfin').length < 2) return '';
