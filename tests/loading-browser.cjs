@@ -67,7 +67,8 @@ const start=(file,env={})=>{const c=spawn(process.execPath,[file],{cwd:root,env:
   t=Date.now();await page.locator('nav a[href="#/movies"]').click();
   await page.locator('#lib-grid .card:not(.skeleton)').first().waitFor({timeout:1500});console.log('Movies first titles:',Date.now()-t,'ms (genres and secondary server pending)');
   t=Date.now();await page.locator('#lib-grid a[href*="/item/"] b').first().click();
-  await page.locator('.detail-in button[data-play]').first().waitFor({timeout:1500});console.log('Movie Play available:',Date.now()-t,'ms (recommendations and other copies pending)');
+  await page.locator('.detail-in button[data-play]').first().waitFor({timeout:1500});
+  const rating=await page.locator('.facts .star').evaluate(el=>{const box=el.getBoundingClientRect(),icon=el.querySelector('svg').getBoundingClientRect();return {center:Math.abs((box.top+box.bottom-icon.top-icon.bottom)/2),display:getComputedStyle(el).display}});assert(['inline-flex','flex'].includes(rating.display));assert(rating.center<=1,'rating icon is misaligned');console.log('Movie Play available:',Date.now()-t,'ms (recommendations and other copies pending)');
   await page.locator('.copies-loading[role="status"]').waitFor({timeout:1000});
   assert.match(await page.locator('.copy-pending').textContent(),/Checking available servers/);
   assert.equal(await page.locator('.copy-spinner').evaluate(el=>getComputedStyle(el).animationName),'spin');

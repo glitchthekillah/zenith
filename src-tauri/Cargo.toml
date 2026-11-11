@@ -1,6 +1,6 @@
 [package]
 name = "zenith"
-version = "0.2.2"
+version = "0.2.3"
 description = "Watch, read and request from your own Jellyfin, Kavita and Seerr servers."
 authors = ["glitch"]
 license = "MIT"
@@ -30,7 +30,7 @@ url = "2"
 rusty-leveldb = "3"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography", "Win32_Foundation", "Win32_System_Memory"] }
+windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography", "Win32_Foundation", "Win32_System_Memory", "Win32_Media_Audio"] }
 
 [profile.release]
 opt-level = "s"

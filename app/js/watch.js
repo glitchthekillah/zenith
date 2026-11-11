@@ -414,7 +414,7 @@ async function copiesBlock(it, owner = groups.active()) {
     return `<a class="copy ${on ? 'on' : ''}" href="#/item/${c.Id}@${c._g}"><span class="copy-orb">${esc(groups.nameOf(groups.byId(c._g)).slice(0, 1).toUpperCase())}</span><span><b>${esc(groups.nameOf(groups.byId(c._g)))}</b><small>${[q, d?.UserData?.Played ? 'Watched' : pct ? `${Math.round(pct)}% watched` : '', d?.UserData?.LastPlayedDate ? 'last watched here' : ''].filter(Boolean).join(' · ') || 'Available'}</small></span>${on ? icon('check') : ''}</a>`; }).join('')}</div>`;
 }
 // Audio and quality pickers on the info page (start on your Settings defaults)
-const QUALS = [[0, 'Original quality'], [40e6, '1080p high'], [20e6, '1080p'], [8e6, '720p'], [4e6, '480p'], [1.5e6, 'Data saver']];
+const QUALS = [[0, 'Direct play · Original file']];
 export const prePick = { audio: null, quality: null, sub: null, for: null, group: null };
 async function prePlay(it, playId, owner = groups.active(), alive = () => true) {
   const src = (it.Type === 'Series' ? (await groups.run(owner, () => jf.item(playId)).catch(() => null)) : it)?.MediaSources?.[0];
@@ -429,9 +429,9 @@ async function prePlay(it, playId, owner = groups.active(), alive = () => true) 
   const autoLang = list.find((a) => a.index === auto)?.lang || '';
   const opts = it.Type === 'Series' ? langs.map((a) => [a.lang, (tracks.LANGS.find((l) => tracks.isLang(a, l[0]))?.[1]) || a.label]) : list.map((a) => [String(a.index), a.label]);
   const sel = prePick.audio ?? (it.Type === 'Series' ? autoLang : String(auto));
-  const q = prePick.quality ?? settings.playback.maxBitrate ?? 0;
+  const q = 0;
   // Subtitles: Auto follows your rules; a show picks by language so it carries to every episode
-  const subs = (src?.MediaStreams || []).filter((x) => x.Type === 'Subtitle').map((x) => ({ index: x.Index, label: x.DisplayTitle || x.Language || `Track ${x.Index}`, lang: x.Language || '', forced: !!x.IsForced, textBased: !!x.IsTextSubtitleStream }));
+  const subs = (src?.MediaStreams || []).filter((x) => x.Type === 'Subtitle' && x.IsTextSubtitleStream).map((x) => ({ index: x.Index, label: x.DisplayTitle || x.Language || `Track ${x.Index}`, lang: x.Language || '', forced: !!x.IsForced, textBased: !!x.IsTextSubtitleStream }));
   const langName = (t) => tracks.LANGS.find((l) => tracks.isLang(t, l[0]))?.[1] || t.label;
   const subOpts = it.Type === 'Series'
     ? [...new Map(subs.filter((x) => !x.forced).map((x) => [x.lang || x.label, x])).values()].map((x) => [`lang:${x.lang}`, langName(x)])

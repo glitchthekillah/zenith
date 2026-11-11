@@ -217,8 +217,8 @@ route('settings', async (sub) => {
     ${pane('servers', 'Servers', "Each card is one server, yours or a friend's. Connect its Jellyfin, Kavita and request sites and everything shows up together, marked with where it's from.", `<div class="srv-cards">${groups.list().map(srvCard).join('')}
       <button class="srv-add" data-group-add>${icon('plus')}<b>Add another server</b><small>A friend's Jellyfin, Kavita or request site</small></button></div>`)}
     ${pane('playback', 'Playback', 'How videos play.', `
-      ${group('Video', `${sw('playback.directPlay', 'Play the original file when possible', 'Best quality and no work for the server. Turn off if videos stutter.')}
-      <label class="set-row"><div><b>Default quality</b><small>Lower uses less internet.</small></div><select data-set="playback.maxBitrate" data-num="1">${[[0, 'Original'], [40e6, '1080p high'], [20e6, '1080p'], [8e6, '720p'], [4e6, '480p'], [1.5e6, 'Data saver']].map(([v, l]) => `<option value="${v}" ${p.maxBitrate === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      ${group('Video', `<div class="set-row"><div><b>Direct play only</b><small>Original file and quality. No server transcoding or remuxing. Unsupported formats show an explanation.</small></div></div>
+      ${desktop && /Win/i.test(navigator.platform) ? sw('playback.nativeAudio', 'Windows app audio', 'Plays decoded audio through Zenith so Discord can capture sound when sharing this app window. Changes apply to the next playback.') : ''}
       ${sw('playback.autoplayNext', 'Play the next episode automatically')}
       ${sw('playback.skipIntro', 'Skip intros automatically', 'Needs intro markers on the server (Jellyfin 10.10 or the Intro Skipper plugin).')}`)}
 `)}

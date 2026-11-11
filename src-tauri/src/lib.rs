@@ -1,6 +1,7 @@
 // Zenith desktop app (Tauri). The interface lives in ../app and runs exactly like the
 // web version. This adds what a browser can't do: requests without CORS limits, an
 // always-on-top mini player, media keys, downloads, Discord status and updates.
+mod audio;
 mod discord;
 mod download;
 mod http;
@@ -62,6 +63,19 @@ fn discord_set(activity: Option<Value>) -> bool { discord::set(activity.unwrap_o
 async fn web_login(app: AppHandle, url: String) -> Option<Value> { weblogin::run(app, url).await }
 #[tauri::command]
 fn migrated(app: AppHandle) { migrate::done(&app) }
+
+#[tauri::command]
+async fn audio_open(state: tauri::State<'_, audio::Audio>, rate: u32) -> Result<u64, String> {
+    let ticket = audio::reserve(&state);
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || audio::open_reserved(&state, rate, ticket)).await.map_err(|_| "Windows audio output worker failed".to_string())?
+}
+#[tauri::command]
+fn audio_write(state: tauri::State<'_, audio::Audio>, id: u64, generation: u64, samples: Vec<i16>) -> bool { audio::write(&state, id, generation, samples) }
+#[tauri::command]
+fn audio_flush(state: tauri::State<'_, audio::Audio>, id: u64, generation: u64) { audio::flush(&state, id, generation) }
+#[tauri::command]
+fn audio_close(state: tauri::State<'_, audio::Audio>, id: u64) { audio::close(&state, id) }
 
 fn is_app_url(u: &url::Url) -> bool {
     // `npm start` (tauri dev) serves the app from a local dev server instead
@@ -140,7 +154,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(window::WinState(Default::default()))
         .manage(update::Pending::default())
-        .invoke_handler(tauri::generate_handler![http, http_forget, info, win, open, show_file, download, download_cancel, notify_cmd, update_check, update_install, discord_set, web_login, migrated])
+        .manage(audio::Audio::default())
+        .invoke_handler(tauri::generate_handler![audio_open, audio_write, audio_flush, audio_close, http, http_forget, info, win, open, show_file, download, download_cancel, notify_cmd, update_check, update_install, discord_set, web_login, migrated])
         .setup(|app| {
             let h = app.handle().clone();
             http::load(&h);

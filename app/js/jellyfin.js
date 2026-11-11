@@ -115,54 +115,43 @@ export const trickplayUrl = (id, width, index, sourceId) => `${S().url}/Videos/$
 
 // ── Playback ───────────────────────────────────────────────────────────
 // What this app can play directly. Anything else is converted by the server (HLS).
-function deviceProfile(maxBitrate) {
+function deviceProfile() {
   const v = document.createElement('video');
-  const can = (t) => !!v.canPlayType(t).replace('no', '');
-  const vcodecs = ['h264', ...(can('video/mp4; codecs="hvc1.1.6.L93.B0"') ? ['hevc'] : []), ...(can('video/webm; codecs="vp9"') ? ['vp9'] : []), ...(can('video/mp4; codecs="av01.0.05M.08"') ? ['av1'] : []), 'vp8'];
-  const acodecs = ['aac', 'mp3', 'opus', 'flac', 'vorbis', ...(can('audio/mp4; codecs="ac-3"') ? ['ac3'] : []), ...(can('audio/mp4; codecs="ec-3"') ? ['eac3'] : [])];
+  const can = (mime) => !!v.canPlayType(mime).replace('no', '');
+  const video = [['h264','video/mp4; codecs="avc1.42E01E"'],['hevc','video/mp4; codecs="hvc1.1.6.L93.B0"'],['vp9','video/webm; codecs="vp9"'],['av1','video/mp4; codecs="av01.0.05M.08"'],['vp8','video/webm; codecs="vp8"']].filter(([,mime])=>can(mime)).map(([codec])=>codec);
+  const audio = [['aac','audio/mp4; codecs="mp4a.40.2"'],['mp3','audio/mpeg'],['opus','audio/ogg; codecs="opus"'],['flac','audio/flac'],['vorbis','audio/ogg; codecs="vorbis"'],['ac3','audio/mp4; codecs="ac-3"'],['eac3','audio/mp4; codecs="ec-3"']].filter(([,mime])=>can(mime)).map(([codec])=>codec);
   return {
-    MaxStreamingBitrate: maxBitrate || 200_000_000, MaxStaticBitrate: maxBitrate || 200_000_000, MusicStreamingTranscodingBitrate: 384000,
+    MaxStreamingBitrate: 2_000_000_000, MaxStaticBitrate: 2_000_000_000,
     DirectPlayProfiles: [
-      { Container: 'mp4,m4v,mov', Type: 'Video', VideoCodec: vcodecs.join(','), AudioCodec: acodecs.join(',') },
-      { Container: 'mkv', Type: 'Video', VideoCodec: vcodecs.join(','), AudioCodec: acodecs.join(',') },
-      { Container: 'webm', Type: 'Video', VideoCodec: 'vp8,vp9,av1', AudioCodec: 'vorbis,opus' },
-      { Container: 'mp3,aac,m4a,flac,ogg,opus,wav,webma', Type: 'Audio' },
+      ...(can('video/mp4') ? [{Container:'mp4,m4v,mov',Type:'Video',VideoCodec:video.join(','),AudioCodec:audio.join(',')}] : []),
+      ...(can('video/x-matroska') ? [{Container:'mkv',Type:'Video',VideoCodec:video.join(','),AudioCodec:audio.join(',')}] : []),
+      ...(can('video/webm') ? [{Container:'webm',Type:'Video',VideoCodec:video.filter(c=>['vp8','vp9','av1'].includes(c)).join(','),AudioCodec:audio.filter(c=>['vorbis','opus'].includes(c)).join(',')}] : []),
     ],
-    TranscodingProfiles: [
-      { Container: 'ts', Type: 'Video', AudioCodec: 'aac,mp3', VideoCodec: vcodecs.filter((c) => ['h264', 'hevc'].includes(c)).join(','), Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: '6', MinSegments: '1', BreakOnNonKeyFrames: true },
-      { Container: 'mp3', Type: 'Audio', AudioCodec: 'mp3', Context: 'Streaming', Protocol: 'http' },
-    ],
-    ContainerProfiles: [], CodecProfiles: [],
-    SubtitleProfiles: [{ Format: 'vtt', Method: 'External' }, { Format: 'srt', Method: 'External' }, { Format: 'ass', Method: 'External' }, { Format: 'ssa', Method: 'External' }, { Format: 'pgssub', Method: 'Encode' }, { Format: 'dvdsub', Method: 'Encode' }],
+    TranscodingProfiles: [], ContainerProfiles: [], CodecProfiles: [],
+    SubtitleProfiles: ['vtt','srt','ass','ssa'].map(Format=>({Format,Method:'External'})),
   };
 }
 // Returns { url, hls, source, playSessionId, method, subtitles[], audio[] }
 // clientAudio: the player can switch audio tracks itself, so a non-default track can still play the original file
 export async function playback(id, { audioIndex, subIndex, start = 0, maxBitrate, forceTranscode = false, sourceId, clientAudio = false, burnSub = false } = {}) {
-  const p = settings.playback;
-  const bitrate = maxBitrate ?? p.maxBitrate;
+  if (burnSub) throw new Error('These image subtitles require server conversion. Choose text subtitles or turn subtitles off for direct play.');
   const body = {
-    UserId: S().userId, DeviceProfile: deviceProfile(bitrate), StartTimeTicks: Math.round(start * 1e7), AutoOpenLiveStream: true, MediaSourceId: sourceId || undefined,
-    EnableDirectPlay: !forceTranscode && p.directPlay, EnableDirectStream: !forceTranscode, EnableTranscoding: true, AllowVideoStreamCopy: !forceTranscode, AllowAudioStreamCopy: !forceTranscode,
-    ...(audioIndex != null ? { AudioStreamIndex: audioIndex } : {}), ...(subIndex != null && burnSub ? { SubtitleStreamIndex: subIndex } : {}), ...(bitrate ? { MaxStreamingBitrate: bitrate } : {}),
+    UserId: S().userId, DeviceProfile: deviceProfile(), StartTimeTicks: Math.round(start * 1e7), AutoOpenLiveStream: false, MediaSourceId: sourceId || undefined,
+    EnableDirectPlay: true, EnableDirectStream: false, EnableTranscoding: false, AllowVideoStreamCopy: true, AllowAudioStreamCopy: true,
+    ...(audioIndex != null ? {AudioStreamIndex:audioIndex} : {}),
   };
   const info = await api(`/Items/${id}/PlaybackInfo?UserId=${S().userId}`, { method: 'POST', body });
   if (info.ErrorCode) throw new Error(info.ErrorCode === 'NotAllowed' ? "You're not allowed to play this." : `The server can't play this (${info.ErrorCode}).`);
   const src = info.MediaSources?.[0];
   if (!src) throw new Error('This item has no playable file.');
   const base = S().url, token = S().token;
-  let url, hls = false, method;
-  const audioOk = audioIndex == null || clientAudio || audioIndex === src.DefaultAudioStreamIndex;
-  if (src.SupportsDirectPlay && p.directPlay && !forceTranscode && audioOk && !burnSub) {
-    method = 'Direct play';
-    url = `${base}/Videos/${id}/stream?static=true&MediaSourceId=${src.Id}&PlaySessionId=${info.PlaySessionId}&api_key=${token}&DeviceId=${deviceId}`;
-  } else if (src.SupportsDirectStream && !forceTranscode && audioOk && !burnSub) {
-    method = 'Direct stream';
-    url = `${base}/Videos/${id}/stream.${src.Container}?static=true&MediaSourceId=${src.Id}&PlaySessionId=${info.PlaySessionId}&api_key=${token}&DeviceId=${deviceId}`;
-  } else if (src.TranscodingUrl) {
-    method = 'Converting on the server';
-    url = base + src.TranscodingUrl; hls = /m3u8/.test(src.TranscodingUrl);
-  } else throw new Error('The server could not prepare this video.');
+  if (!src.SupportsDirectPlay) {
+    const formats = [src.Container, ...(src.MediaStreams || []).filter(s=>s.Type==='Video'||s.Type==='Audio').map(s=>s.Codec)].filter(Boolean).join(' / ');
+    throw new Error(`This original file cannot direct play on this device${formats ? ` (${formats})` : ''}. Server transcoding is disabled. Choose a compatible copy or install the required local codec.`);
+  }
+  if (audioIndex != null && !clientAudio && audioIndex !== src.DefaultAudioStreamIndex) throw new Error('This device cannot switch audio tracks in the original file. Select the default audio track for direct play.');
+  const method = 'Direct play', hls = false;
+  const url = `${base}/Videos/${id}/stream?static=true&MediaSourceId=${src.Id}&PlaySessionId=${info.PlaySessionId}&api_key=${token}&DeviceId=${deviceId}`;
   const streams = src.MediaStreams || [];
   const subtitles = streams.filter((s) => s.Type === 'Subtitle').map((s) => ({
     index: s.Index, label: s.DisplayTitle || s.Language || `Track ${s.Index}`, lang: s.Language || '', forced: !!s.IsForced, isDefault: !!s.IsDefault, external: !!s.IsExternal,

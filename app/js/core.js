@@ -9,7 +9,7 @@ const KEY = 'zenith';
 const defaults = {
   theme: 'dark', accent: '#e8a33d',
   servers: { jellyfin: null, kavita: null, seerr: null, ask: null }, // { url, token, userId, name, ... }
-  playback: { directPlay: true, maxBitrate: 0, autoplayNext: true, skipIntro: true, subtitles: 'smart', subtitleSize: 100, subPreset: 'zenith', subColor: '#ffffff', subOpacity: 100, subFont: 'sans', subWeight: 600, subEdge: 'shadow', subBg: 'line', subBgColor: '#000000', subBgOpacity: 55, subPos: 6, sv: 1, volume: 1, rate: 1, audioLang: 'eng', subLang: 'eng' },
+  playback: { nativeAudio: true, directPlay: true, maxBitrate: 0, autoplayNext: true, skipIntro: true, subtitles: 'smart', subtitleSize: 100, subPreset: 'zenith', subColor: '#ffffff', subOpacity: 100, subFont: 'sans', subWeight: 600, subEdge: 'shadow', subBg: 'line', subBgColor: '#000000', subBgOpacity: 55, subPos: 6, sv: 1, volume: 1, rate: 1, audioLang: 'eng', subLang: 'eng' },
   reader: { mode: 'paged', direction: 'ltr', fit: 'height', bookFont: 19, bookTheme: 'dark' },
   app: { covers: true, rewatch: true, liveSky: true, discord: true, notify: true, miniOnBlur: false, startPage: 'home' },
   // Only on this device: never sent to any server
@@ -62,7 +62,7 @@ export const gsuf = (x) => (x?._g && settings.groups.length > 1 ? '@' + x._g : '
 // A stable id for this install (servers use it to tell devices apart)
 export const deviceId = (() => { let id = localStorage.getItem('zenith-device'); if (!id) { id = crypto.randomUUID().replace(/-/g, ''); try { localStorage.setItem('zenith-device', id); } catch {} } return id; })();
 const webSession = (() => { let id = sessionStorage.getItem('zenith-web') || localStorage.getItem('zenith-web'); if (!id) { id = crypto.randomUUID().replace(/-/g, ''); try { localStorage.setItem('zenith-web', id); } catch {} } return id; })();
-export const VERSION = '0.2.2';
+export const VERSION = '0.2.3';
 
 // ── Requests to the user's servers ────────────────────────────────────
 // The desktop app makes them itself; the web version goes through its small server.

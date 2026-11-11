@@ -2,6 +2,7 @@
 // chapters, skip intro, next episode, picture in picture and the mini player.
 import { $, esc, icon, fmtTime, settings, save, desktop, toast, emit, http, groups } from './core.js';
 import * as jf from './jellyfin.js';
+import {attachNativeAudio, audioMuted, setAudioMuted} from './native-audio.js';
 import { pickAudio, pickSub, applySubStyle, cueHtml } from './tracks.js';
 
 // Electron can switch audio tracks inside the original file (no server work needed)
@@ -20,7 +21,7 @@ const root = () => $('#player');
 let S = null; // the current session
 
 const SPEEDS = [0.5, 0.75, 1, 1.1, 1.25, 1.5, 1.75, 2];
-const QUALITIES = [[0, 'Original'], [120e6, '4K (120 Mbps)'], [40e6, '1080p high (40 Mbps)'], [20e6, '1080p (20 Mbps)'], [8e6, '720p (8 Mbps)'], [4e6, '480p (4 Mbps)'], [1.5e6, 'Data saver (1.5 Mbps)']];
+const QUALITIES = [[0, 'Original file · direct play']];
 
 export const isOpen = () => !!S;
 
@@ -32,14 +33,14 @@ export async function play(item, { start, queue = [] } = {}) {
   const gid = groups.active().id;
   const full = item.MediaSources ? item : await jf.item(item.Id);
   const resumeAt = start ?? (full.UserData?.PlaybackPositionTicks ? full.UserData.PlaybackPositionTicks / 1e7 : 0);
-  S = { g: gid, item: full, queue, pb: null, hls: null, sub: null, audio: null, quality: settings.playback.maxBitrate, offset: 0, reported: 0, menu: null, segments: [], introShown: false, nextShown: false, startedAt: Date.now() };
+  S = { g: gid, item: full, queue, pb: null, hls: null, sub: null, audio: null, quality: 0, offset: 0, reported: 0, menu: null, segments: [], introShown: false, nextShown: false, startedAt: Date.now() };
   // Your languages first: English audio when there is any, otherwise English subtitles (Settings > Playback)
   const tr = listTracks(full);
   S.audio = pickAudio(tr.audio, tr.defaultAudio);
   // Picked on the info page just before pressing play
   const pre = (await import('./watch.js')).prePick;
   if (pre && pre.group === gid && (pre.for === full.Id || pre.for === full.SeriesId)) {
-    if (pre.quality != null) S.quality = pre.quality;
+    // Direct play always keeps the original file quality.
     if (pre.audio != null && pre.audio !== '') {
       const byIndex = tr.audio.find((a) => String(a.index) === String(pre.audio));
       const byLang = tr.audio.find((a) => a.lang && a.lang === pre.audio);
@@ -53,7 +54,7 @@ export async function play(item, { start, queue = [] } = {}) {
     else if (tr.subs.some((x) => String(x.index) === pre.sub)) S.sub = Number(pre.sub);
   }
   S.subTextOk = S.sub == null || !!tr.subs.find((x) => x.index === S.sub)?.textBased;
-  S.forceTranscode = !!S.quality;
+  S.forceTranscode = false;
   S.trackKnown = tr.audio.length + tr.subs.length > 0;
   document.body.classList.add('playing');
   build();
@@ -98,6 +99,8 @@ function build() {
     </div>
   </div>`;
   const v = $('video', el);
+  S.nativeAudioWanted = !!desktop && /Win/i.test(navigator.platform) && settings.playback.nativeAudio !== false;
+  if (S.nativeAudioWanted) v.crossOrigin = 'anonymous';
   v.volume = settings.playback.volume; v.playbackRate = settings.playback.rate;
   applySubStyle(el);
   S.v = v;
@@ -111,7 +114,17 @@ function build() {
   v.addEventListener('play', () => { paintPlay(); discord(); });
   v.addEventListener('ended', ended);
   v.addEventListener('volumechange', () => { settings.playback.volume = v.volume; save(); paintVolume(); });
-  v.addEventListener('error', () => { if (!S?.hls) fail(v.error); });
+  v.addEventListener('error', () => {
+    if (!S || S.v !== v) return;
+    // A server without CORS can still direct play normally; skip only native audio.
+    if (v.crossOrigin && !S.audioCorsRetried) {
+      S.audioCorsRetried = true; S.nativeAudioWanted = false;
+      S.audioOut?.stop(); v.removeAttribute('crossorigin');
+      toast('Retrying the original file with standard audio.');
+      return load(pos());
+    }
+    if (!S.hls) fail(v.error);
+  });
   v.addEventListener('enterpictureinpicture', () => $('[data-p=pip]', el).classList.add('on'));
   v.addEventListener('leavepictureinpicture', () => $('[data-p=pip]', el).classList.remove('on'));
   v.addEventListener('click', () => { if (!document.body.classList.contains('mini')) toggle(); });
@@ -119,7 +132,7 @@ function build() {
   el.onclick = onClick;
   el.onmousemove = wake;
   el.ontouchstart = wake;
-  $('.pl-vol input', el).oninput = (e) => { v.volume = Number(e.target.value); v.muted = false; };
+  $('.pl-vol input', el).oninput = (e) => { v.volume = Number(e.target.value); setAudioMuted(v, false); paintVolume(); };
   setupSeek();
   paintVolume();
   wake();
@@ -134,16 +147,18 @@ function build() {
 
 // Load (or reload) the stream at a position, with the current track and quality choices
 async function load(at = 0) {
+  const session = S;
   groups.use(S.g);
+  S.audioOut?.stop();
   const v = S.v;
   spin(true);
   if (S.hls) { S.hls.destroy(); S.hls = null; }
-  if (S.pb) jf.stopTranscode(S.pb);
+  if (S.pb?.hls) jf.stopTranscode(S.pb);
   let pb;
   try {
     pb = await jf.playback(S.item.Id, { audioIndex: S.audio, subIndex: S.sub ?? undefined, burnSub: S.sub != null && !S.subTextOk, clientAudio: canSwitchAudio, start: at, maxBitrate: S.quality, forceTranscode: S.forceTranscode });
   } catch (e) { return fail(e); }
-  if (!S) return;
+  if (S !== session) return;
   S.pb = pb;
   // The item didn't list its tracks: choose now from what the server sent
   if (!S.trackKnown) {
@@ -175,6 +190,7 @@ async function load(at = 0) {
     v.src = pb.url;
     v.addEventListener('loadedmetadata', () => { if (at) v.currentTime = at; pickFileAudio(); }, { once: true });
   }
+  S.audioOut = attachNativeAudio(v, desktop, S.nativeAudioWanted);
   v.play().catch(() => paintPlay());
   applySubtitles();
   paintButtons();
@@ -252,7 +268,7 @@ function paintBuffer() {
   $('.buf', root()).style.width = d ? `${Math.min(100, (end / d) * 100)}%` : '0';
 }
 function paintPlay() { const b = $('[data-p=toggle]', root()); if (b && S) b.innerHTML = icon(S.v.paused ? 'play' : 'pause'); }
-function paintVolume() { const v = S?.v; if (!v) return; $('.pl-vol input', root()).value = v.muted ? 0 : v.volume; $('[data-p=mute]', root()).innerHTML = icon(v.muted || v.volume === 0 ? 'mute' : 'volume'); }
+function paintVolume() { const v = S?.v; if (!v) return; $('.pl-vol input', root()).value = audioMuted(v) ? 0 : v.volume; $('[data-p=mute]', root()).innerHTML = icon(audioMuted(v) || v.volume === 0 ? 'mute' : 'volume'); }
 function paintButtons() {
   const el = root(), it = S.item;
   const ep = it.Type === 'Episode';
@@ -377,7 +393,7 @@ function menu(kind) {
   let html = '';
   if (kind === 'subs') {
     html = `<h4>Subtitles</h4><button data-sub="off" class="${S.sub == null ? 'on' : ''}">Off</button>` +
-      pb.subtitles.map((s) => `<button data-sub="${s.index}" class="${S.sub === s.index ? 'on' : ''}">${esc(s.label)}${s.forced ? ' (forced)' : ''}${s.textBased ? '' : ' · burned in'}</button>`).join('') +
+      pb.subtitles.map((s) => `<button data-sub="${s.index}" ${s.textBased ? '' : 'disabled'} class="${S.sub === s.index ? 'on' : ''}">${esc(s.label)}${s.forced ? ' (forced)' : ''}${s.textBased ? '' : ' · unavailable in direct play'}</button>`).join('') +
       `<h4>Size</h4><div class="row2"><input type="range" min="60" max="200" step="10" value="${settings.playback.subtitleSize}" data-subsize><span>${settings.playback.subtitleSize}%</span></div>`;
   } else if (kind === 'settings') {
     html = `<h4>Audio</h4>${pb.audio.map((a) => `<button data-audio="${a.index}" class="${S.audio === a.index ? 'on' : ''}">${esc(a.label)}</button>`).join('') || '<button disabled>Only one track</button>'}
@@ -402,7 +418,7 @@ async function onClick(e) {
   if (p === 'toggle') return toggle();
   if (p === 'back10') return seekBy(-10);
   if (p === 'fwd30') return seekBy(30);
-  if (p === 'mute') { S.v.muted = !S.v.muted; return; }
+  if (p === 'mute') { setAudioMuted(S.v, !audioMuted(S.v)); paintVolume(); return; }
   if (p === 'next') return nextEpisode();
   if (p === 'prev') return prevEpisode();
   if (p === 'hidenext') return b.closest('.pl-next').remove();
@@ -427,20 +443,19 @@ async function onClick(e) {
     if (!S.pb.hls && canSwitchAudio && S.v.audioTracks?.length > 1) { pickFileAudio(); paintButtons(); return; }
     return load(pos());
   }
-  if (b.dataset.q != null) { S.quality = Number(b.dataset.q); S.forceTranscode = S.quality > 0; S.menu = null; $('.pl-menu', root())?.remove(); toast(S.quality ? 'Changing quality...' : 'Back to the original file'); return load(pos()); }
+  if (b.dataset.q != null) { S.quality = 0; S.forceTranscode = false; S.menu = null; $('.pl-menu', root())?.remove(); toast(S.quality ? 'Changing quality...' : 'Back to the original file'); return load(pos()); }
   if (b.dataset.rate) { S.v.playbackRate = Number(b.dataset.rate); settings.playback.rate = S.v.playbackRate; save(); S.menu = null; $('.pl-menu', root())?.remove(); flash(`${S.v.playbackRate}x`); return; }
   if (b.dataset.ep) { const list = S.list; const i = list.findIndex((x) => x.Id === b.dataset.ep); await play(list[i], { start: 0, queue: list.slice(i + 1) }); S.list = list; }
 }
 function fail(e) {
   spin(false);
   if (!S) return;
-  const msg = e?.message || (e?.code === 4 ? "This video format can't play here." : 'The video stopped.');
-  // Direct play failed in this browser: try again with the server converting it
-  if (!S.forceTranscode && !S.pb?.hls && (e?.code === 4 || e?.code === 3)) { S.forceTranscode = true; toast('Switching to a converted stream'); return load(pos()); }
+  const msg = (e?.code === 3 || e?.code === 4) ? "This device could not decode the original file. Server transcoding is disabled. Try a compatible copy or install the required local codec." : (e?.message || "The video stopped.");
+  // Never turn a decoder error into server conversion in direct-play-only mode.
   const el = root();
   $('.pl-error', el)?.remove();
   el.insertAdjacentHTML('beforeend', `<div class="pl-error"><div><h3>Playback problem</h3><p>${esc(msg)}</p><div class="acts" style="justify-content:center"><button class="btn gold" data-p="retry">Try again</button><button class="btn" data-p="close">Close</button></div></div></div>`);
-  $('[data-p=retry]', el).onclick = () => { $('.pl-error', el).remove(); S.forceTranscode = true; load(pos()); };
+  $('[data-p=retry]', el).onclick = () => { $('.pl-error', el).remove(); load(pos()); };
 }
 
 export async function close(quiet) {
@@ -453,6 +468,7 @@ export async function close(quiet) {
   if (document.body.classList.contains('fullscreen')) { await desktop?.win('fullscreen', false); document.body.classList.remove('fullscreen'); }
   const p = s.offset + (s.v.currentTime || 0);
   if (s.pb) { jf.reportStop(s.item, s.pb, p); if (s.pb.hls) jf.stopTranscode(s.pb); }
+  s.audioOut?.stop();
   s.hls?.destroy();
   s.v.removeAttribute('src'); s.v.load();
   root().hidden = true; root().innerHTML = '';
@@ -468,7 +484,7 @@ document.addEventListener('keydown', (e) => {
   const map = {
     ' ': toggle, k: toggle, arrowleft: () => seekBy(e.shiftKey ? -30 : -10), arrowright: () => seekBy(e.shiftKey ? 60 : 30), j: () => seekBy(-10), l: () => seekBy(10),
     arrowup: () => { S.v.volume = Math.min(1, S.v.volume + 0.05); flash(`${Math.round(S.v.volume * 100)}%`); }, arrowdown: () => { S.v.volume = Math.max(0, S.v.volume - 0.05); flash(`${Math.round(S.v.volume * 100)}%`); },
-    f: () => fullscreen(), m: () => (desktop ? mini() : (S.v.muted = !S.v.muted)), p: pip, c: () => menu('subs'), n: nextEpisode, escape: () => (S.menu ? menu(S.menu) : document.body.classList.contains('mini') ? mini(false) : document.body.classList.contains('fullscreen') ? fullscreen(false) : close()),
+    f: () => fullscreen(), m: () => (desktop ? mini() : (setAudioMuted(S.v, !audioMuted(S.v)))), p: pip, c: () => menu('subs'), n: nextEpisode, escape: () => (S.menu ? menu(S.menu) : document.body.classList.contains('mini') ? mini(false) : document.body.classList.contains('fullscreen') ? fullscreen(false) : close()),
     '>': () => { const i = SPEEDS.indexOf(S.v.playbackRate); S.v.playbackRate = SPEEDS[Math.min(SPEEDS.length - 1, i + 1)]; flash(`${S.v.playbackRate}x`); }, '<': () => { const i = SPEEDS.indexOf(S.v.playbackRate); S.v.playbackRate = SPEEDS[Math.max(0, i - 1)]; flash(`${S.v.playbackRate}x`); },
   };
   if (/^[0-9]$/.test(k)) { seekTo((Number(k) / 10) * duration()); e.preventDefault(); return; }

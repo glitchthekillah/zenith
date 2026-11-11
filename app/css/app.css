@@ -692,3 +692,7 @@ body.scrolling .card:hover:not(:focus-visible) .play-over{opacity:0;transition:n
 .copy-pending{display:inline-flex;align-items:center;gap:10px;padding:14px 18px;border:1px solid var(--line);border-radius:17px;color:var(--mute);background:var(--glass)}
 .copy-spinner{width:17px;height:17px;flex:none;border:2px solid rgba(var(--amber-rgb),.2);border-top-color:var(--amber);border-radius:50%;animation:spin .85s linear infinite}
 @media(prefers-reduced-motion:reduce){.copy-spinner{animation:none}}
+
+/* Keep the rating icon and value on a single optical baseline. */
+.facts .star{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;line-height:1}
+.facts .star>.i{display:block;flex:none}
