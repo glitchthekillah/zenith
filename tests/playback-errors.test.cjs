@@ -1,0 +1,4 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+function failure(error,platform,source){const c={};vm.createContext(c);vm.runInContext(fs.readFileSync('app/js/playback-errors.js','utf8').replace(/^export /gm,'')+'\nglobalThis.failure=playbackFailure;',c);return c.failure(error,platform,source);}
+test('Linux decoding errors explain local codec installation without allowing server conversion',()=>{const r=failure({code:3},'linux',{Container:'mkv',MediaStreams:[{Type:'Video',Codec:'h264'},{Type:'Audio',Codec:'ac3'}]});assert.match(r.message,/mkv \/ h264 \/ ac3/);assert.match(r.message,/Server transcoding remains disabled/);assert.match(r.command,/gstreamer1.0-libav/);});
+test('network failures and Windows playback errors do not recommend Linux package commands',()=>{assert.equal(failure({code:2,message:'Network failed'},'linux').command,'');assert.equal(failure({code:3},'win32').command,'');});

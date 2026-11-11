@@ -114,7 +114,7 @@ export const personImg = (p, w = 200) => p.PrimaryImageTag ? `${SI(p).url}/Items
 export const trickplayUrl = (id, width, index, sourceId) => `${S().url}/Videos/${id}/Trickplay/${width}/${index}.jpg?api_key=${S().token}&MediaSourceId=${sourceId}`;
 
 // ── Playback ───────────────────────────────────────────────────────────
-// What this app can play directly. Anything else is converted by the server (HLS).
+// Advertise local decoding capabilities only. Server conversion is never permitted.
 function deviceProfile() {
   const v = document.createElement('video');
   const can = (mime) => !!v.canPlayType(mime).replace('no', '');

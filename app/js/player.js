@@ -3,6 +3,7 @@
 import { $, esc, icon, fmtTime, settings, save, desktop, toast, emit, http, groups } from './core.js';
 import * as jf from './jellyfin.js';
 import {attachNativeAudio, audioMuted, setAudioMuted} from './native-audio.js';
+import {playbackFailure} from './playback-errors.js';
 import { pickAudio, pickSub, applySubStyle, cueHtml } from './tracks.js';
 
 // Electron can switch audio tracks inside the original file (no server work needed)
@@ -148,6 +149,8 @@ function build() {
 // Load (or reload) the stream at a position, with the current track and quality choices
 async function load(at = 0) {
   const session = S;
+  if (!session) return;
+  const epoch = session.loadEpoch = (session.loadEpoch || 0) + 1;
   groups.use(S.g);
   S.audioOut?.stop();
   const v = S.v;
@@ -157,8 +160,8 @@ async function load(at = 0) {
   let pb;
   try {
     pb = await jf.playback(S.item.Id, { audioIndex: S.audio, subIndex: S.sub ?? undefined, burnSub: S.sub != null && !S.subTextOk, clientAudio: canSwitchAudio, start: at, maxBitrate: S.quality, forceTranscode: S.forceTranscode });
-  } catch (e) { return fail(e); }
-  if (S !== session) return;
+  } catch (e) { if (S === session && session.loadEpoch === epoch) return fail(e); return; }
+  if (S !== session || session.loadEpoch !== epoch) return;
   S.pb = pb;
   // The item didn't list its tracks: choose now from what the server sent
   if (!S.trackKnown) {
@@ -447,15 +450,22 @@ async function onClick(e) {
   if (b.dataset.rate) { S.v.playbackRate = Number(b.dataset.rate); settings.playback.rate = S.v.playbackRate; save(); S.menu = null; $('.pl-menu', root())?.remove(); flash(`${S.v.playbackRate}x`); return; }
   if (b.dataset.ep) { const list = S.list; const i = list.findIndex((x) => x.Id === b.dataset.ep); await play(list[i], { start: 0, queue: list.slice(i + 1) }); S.list = list; }
 }
-function fail(e) {
+async function fail(e) {
   spin(false);
-  if (!S) return;
-  const msg = (e?.code === 3 || e?.code === 4) ? "This device could not decode the original file. Server transcoding is disabled. Try a compatible copy or install the required local codec." : (e?.message || "The video stopped.");
-  // Never turn a decoder error into server conversion in direct-play-only mode.
+  const session = S, epoch = S?.loadEpoch;
+  if (!session) return;
+  const native = desktop?.info ? await desktop.info().catch(() => null) : null;
+  if (S !== session || S.loadEpoch !== epoch) return;
+  const details = playbackFailure(e, native?.platform, S.pb?.source || S.item.MediaSources?.[0]);
+  // Codec repairs happen locally. Never switch this failure to a converted stream.
   const el = root();
   $('.pl-error', el)?.remove();
-  el.insertAdjacentHTML('beforeend', `<div class="pl-error"><div><h3>Playback problem</h3><p>${esc(msg)}</p><div class="acts" style="justify-content:center"><button class="btn gold" data-p="retry">Try again</button><button class="btn" data-p="close">Close</button></div></div></div>`);
+  el.insertAdjacentHTML('beforeend', `<div class="pl-error"><div><h3>Playback problem</h3><p>${esc(details.message)}</p>${details.command ? `<pre>${esc(details.command)}</pre><button class="btn" data-copy-codecs>Copy install command</button>` : ''}<div class="acts" style="justify-content:center"><button class="btn gold" data-p="retry">Try again</button><button class="btn" data-p="close">Close</button></div></div></div>`);
   $('[data-p=retry]', el).onclick = () => { $('.pl-error', el).remove(); load(pos()); };
+  $('[data-copy-codecs]', el)?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(details.command); toast('Copied the Linux codec install command.'); }
+    catch { toast('Select and copy the install command shown above.'); }
+  });
 }
 
 export async function close(quiet) {

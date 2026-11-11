@@ -696,3 +696,7 @@ body.scrolling .card:hover:not(:focus-visible) .play-over{opacity:0;transition:n
 /* Keep the rating icon and value on a single optical baseline. */
 .facts .star{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;line-height:1}
 .facts .star>.i{display:block;flex:none}
+
+.pl-error>div{width:100%;max-width:760px}
+.pl-error pre{padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.45);white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;font-size:13px;line-height:1.6}
+.pl-error [data-copy-codecs]{margin-bottom:16px}
