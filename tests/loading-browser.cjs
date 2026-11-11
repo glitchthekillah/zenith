@@ -16,6 +16,7 @@ const start=(file,env={})=>{const c=spawn(process.execPath,[file],{cwd:root,env:
   ],app:{liveSky:false},playback:{audioLang:'default',subtitles:'off'},profile:{name:'Test'}})));
   await page.route('**/api/http',async route=>{
    const data=route.request().postDataJSON();
+   if(data.url.includes(':8096')&&data.url.includes('/Items/Resume')){const response=await route.fetch();const envelope=await response.json();const payload=JSON.parse(envelope.body);payload.Items[0].Name='I Got a Cheat Skill in Another World and Became Unrivaled in the Real World, Too — A Very Long Title That Must Remain Fully Readable';envelope.body=JSON.stringify(payload);await route.fulfill({json:envelope});return;}
    // Deliberately leave optional recommendations, genres and server 2 unanswered.
    if(data.url.includes(':8097')||data.url.includes('/Similar')||data.url.includes('/Genres'))return;
    if(data.url.includes('/Shows/NextUp'))await new Promise(r=>setTimeout(r,900));
@@ -29,6 +30,8 @@ const start=(file,env={})=>{const c=spawn(process.execPath,[file],{cwd:root,env:
   assert.equal(await page.evaluate(()=>window.__hello===document.querySelector('.hello')),true,'Home greeting was recreated during loading');
   assert.equal(await page.evaluate(()=>window.__search===document.querySelector('#top-search input')),true,'top search field was recreated during loading');
   console.log('Home greeting and top search DOM stay stable');
+  for(const width of [1280,760,420]){await page.setViewportSize({width,height:820});await page.waitForTimeout(80);const bounds=await page.locator('.hello-resume').evaluate(el=>({overflow:el.scrollWidth>el.clientWidth+1||el.scrollHeight>el.clientHeight+1,offscreen:el.getBoundingClientRect().right>innerWidth}));assert.equal(bounds.overflow,false,'long Resume title clips at '+width);assert.equal(bounds.offscreen,false,'Resume action exceeds viewport at '+width);}
+  await page.setViewportSize({width:1280,height:820});console.log('Long Resume title wraps without clipping at desktop and narrow widths');
   t=Date.now();await page.locator('nav a[href="#/movies"]').click();
   await page.locator('#lib-grid .card:not(.skeleton)').first().waitFor({timeout:1500});console.log('Movies first titles:',Date.now()-t,'ms (genres and secondary server pending)');
   t=Date.now();await page.locator('#lib-grid a[href*="/item/"] b').first().click();
@@ -46,7 +49,8 @@ const start=(file,env={})=>{const c=spawn(process.execPath,[file],{cwd:root,env:
     const data=route.request().postDataJSON();
     if(data.url.includes(':8097')){
       let answer;
-      if(data.url.includes('AnyProviderIdEquals='))answer={Items:[bad,good],TotalRecordCount:2};
+      if(data.url.includes('AnyProviderIdEquals='))answer={Items:[bad],TotalRecordCount:1};
+      else if(new URL(data.url).searchParams.get('SearchTerm')==='Starfall')answer={Items:[good],TotalRecordCount:1};
       else if(new URL(data.url).pathname.endsWith('/Items/copy0'))answer=good;
       if(answer){await route.fulfill({json:{ok:true,status:200,headers:{'content-type':'application/json'},body:JSON.stringify(answer),base64:false}});return;}
       if(data.url.includes('/PlaybackInfo'))played.push(data.url);
