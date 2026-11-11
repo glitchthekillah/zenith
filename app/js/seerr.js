@@ -1,7 +1,7 @@
 // Seerr (also works with Jellyseerr and Overseerr): find and request movies and shows.
-import { http, settings, save } from './core.js';
+import { http, settings, save, groups } from './core.js';
 
-const S = () => settings.servers.seerr;
+const S = () => groups.srv('seerr');
 const api = (path, opts) => http(S().url + '/api/v1' + path, opts);
 export const ready = () => !!S()?.userId;
 export const poster = (p, w = 342) => (p ? `https://image.tmdb.org/t/p/w${w}${p}` : '');

@@ -1,5 +1,6 @@
 // Watch pages: home, libraries, a title's page, people and search.
 import { defer, $, $$, esc, icon, route, go, settings, fmtRuntime, plural, loading, errorBox, toast, desktop, emit, on, debounce, groups, gsuf, splitId } from './core.js';
+import { categoryTabs, groupedResults, kindOf, registerLibraries, typeBadge, validCategory } from './categories.js';
 import * as jf from './jellyfin.js';
 import * as player from './player.js';
 import * as kv from './kavita.js';
@@ -55,7 +56,7 @@ const placeNames = (x) => [...new Set((x._copies || [x]).map((c) => groups.nameO
 // Posters: episodes and seasons show their show's poster and name (episode stills look
 // like random screenshots in a poster grid). Wide cards keep the episode's own picture.
 const seriesPoster = (it, w) => it.SeriesPrimaryImageTag ? `${(it._g && groups.byId(it._g)?.servers.jellyfin || settings.servers.jellyfin || groups.srv('jellyfin')).url}/Items/${it.SeriesId}/Images/Primary?tag=${it.SeriesPrimaryImageTag}&maxWidth=${w}&quality=88` : '';
-export function card(it, { wide = false, badge = '', asShow = false } = {}) {
+export function card(it, { wide = false, badge = '', asShow = false, kindBadge = false } = {}) {
   const ep = it.Type === 'Episode', season = it.Type === 'Season';
   const pic = wide ? jf.img(it, 'Thumb', 480) : ep ? seriesPoster(it, 300) || jf.img(it, 'Primary', 300) : season ? jf.img(it, 'Primary', 300) || seriesPoster(it, 300) : jf.img(it, 'Primary', 300);
   const pct = it.UserData?.PlayedPercentage;
@@ -70,7 +71,7 @@ export function card(it, { wide = false, badge = '', asShow = false } = {}) {
     <div class="art${wide ? ' wide' : ''}">${pic ? `<img loading="lazy" src="${esc(pic)}" alt="">` : `<div class="ph">${esc(title)}</div>`}
       ${badge ? `<span class="badge amber">${esc(badge)}</span>` : ''}
       ${it.UserData?.Played ? `<span class="check">${icon('check')}</span>` : unplayed ? `<span class="badge right pink">${unplayed}</span>` : ''}
-      ${pct ? `<span class="bar"><i style="width:${pct}%"></i></span>` : ''}${fromPill(it)}
+      ${kindBadge ? typeBadge(kindOf(it)) : ''}${pct ? `<span class="bar"><i style="width:${pct}%"></i></span>` : ''}${fromPill(it)}
       ${['Movie', 'Episode'].includes(it.Type) || asShow ? `<span class="play-over"><span data-play="${playId}" title="Play">${icon('play')}</span></span>` : ''}
     </div><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</a>`;
 }
@@ -139,6 +140,7 @@ route('home', () => defer(async (publish, alive) => {
     tasks.push(...groups.with('jellyfin').map(async (owner) => {
       const views = await groups.run(owner, () => jf.views()).catch(() => []);
       if (!alive()) return;
+      registerLibraries(owner, views);
       const libs = groups.tag(owner, views.filter((v) => ['movies', 'tvshows', 'boxsets', 'homevideos', 'mixed', undefined].includes(v.CollectionType)));
       libraries.set(owner.id, libs);
       const allLibs = [...libraries.values()].flat();
@@ -190,8 +192,10 @@ function greeting(st, resumeTop, shuffle) {
 }
 function hero(list) {
   if (!list.length) return '';
-  const slides = list.map((it, i) => `<div class="hero-slide" data-g="${esc(it._g || groups.active().id)}" data-i="${i}" ${i ? 'hidden' : ''}><img src="${esc(jf.img(it, 'Backdrop', 1600))}" alt=""><div class="hero-in"><span class="kicker">New on ${esc(settings.servers.jellyfin.server || 'your server')}</span><h2>${esc(it.Type === 'Episode' ? it.SeriesName : it.Name)}</h2><div class="meta">${[it.ProductionYear, it.OfficialRating, fmtRuntime(it.RunTimeTicks), it.CommunityRating ? `${it.CommunityRating.toFixed(1)} rating` : '', (it.Genres || []).slice(0, 2).join(', ')].filter(Boolean).map(esc).join('<span>·</span>')}</div><p>${esc(it.Overview)}</p><div class="acts"><button class="btn gold big" data-play="${it.SeriesId || it.Id}">${icon('play')} Play</button><a class="btn big" href="#/item/${it.SeriesId || it.Id}${gsuf(it)}">More info</a></div></div></div>`).join('');
-  return `<section class="hero" id="hero">${slides}<div class="hero-dots">${list.map((_, i) => `<button data-hero="${i}" class="${i ? '' : 'on'}" aria-label="Slide ${i + 1}"></button>`).join('')}</div></section>`;
+  const slides = list.map((it, i) => `<div class="hero-slide" data-g="${esc(it._g || groups.active().id)}" data-i="${i}" ${i ? 'hidden' : ''}>
+    <div class="hero-in"><span class="kicker">New on ${esc(groups.nameOf(groups.byId(it._g) || groups.active()))}</span><h2>${esc(it.Type === 'Episode' ? it.SeriesName : it.Name)}</h2><div class="meta">${[it.ProductionYear, it.OfficialRating, fmtRuntime(it.RunTimeTicks), it.CommunityRating ? `${it.CommunityRating.toFixed(1)} rating` : '', (it.Genres || []).slice(0, 2).join(', ')].filter(Boolean).map(esc).join('<span>·</span>')}</div><p>${esc(it.Overview)}</p><div class="acts"><button class="btn gold big" data-play="${it.SeriesId || it.Id}">${icon('play')} Play</button><a class="btn big" href="#/item/${it.SeriesId || it.Id}${gsuf(it)}">More info</a></div></div>
+    <div class="hero-art"><img src="${esc(jf.img(it, 'Backdrop', 1600))}" alt=""></div></div>`).join('');
+  return `<section class="hero hero-split" id="hero">${slides}<div class="hero-dots">${list.map((_, i) => `<button data-hero="${i}" class="${i ? '' : 'on'}" aria-label="Slide ${i + 1}"></button>`).join('')}</div></section>`;
 }
 let heroTimer, boundHero;
 function bindHero() {
@@ -207,10 +211,10 @@ function bindHero() {
 }
 on('rendered', bindHero);
 on('patched', bindHero);
-const hs = document.createElement('style'); hs.textContent = '.hero-slide{position:absolute;inset:0;display:flex;align-items:flex-end}.hero-slide img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;animation:heroin .8s ease both}.hero-slide::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(7,7,13,.95) 0,rgba(7,7,13,.6) 45%,transparent 75%),linear-gradient(0deg,rgba(7,7,13,.9),transparent 55%)}.hero-slide .hero-in{z-index:1}.hero::after{display:none}@keyframes heroin{from{opacity:0;transform:scale(1.04)}}'; document.head.append(hs);
 
-export const readCard = (s) => `<a class="card" href="#/series/${s.id}${gsuf(s)}"><div class="art"><img loading="lazy" src="${esc(kv.cover(s.id, s._g))}" alt="">${fromPill(s, 'kavita')}${s.pagesRead && s.pages ? `<span class="bar"><i style="width:${Math.round((s.pagesRead / s.pages) * 100)}%"></i></span>` : ''}</div><b>${esc(s.name)}</b>${s.libraryName ? `<small>${esc(s.libraryName)}</small>` : ''}</a>`;
-export const requestCard = (x) => `<a class="card" href="#/request-item/${x.type}/${encodeURIComponent(x.id ?? x.key)}" data-key="${esc(x.key)}"><div class="art">${x.poster ? `<img loading="lazy" src="${esc(x.poster)}" alt="">` : `<div class="ph">${esc(x.title)}</div>`}${x.status && x.status !== 'none' ? `<span class="badge ${x.status === 'available' ? 'ok' : 'amber'}">${esc(rq.STATUS[x.status] || x.status)}</span>` : ''}</div><b>${esc(x.title)}</b><small>${esc([x.year, x.author, x.type === 'tv' ? (x.anime ? 'Anime' : 'Show') : x.type === 'movie' ? 'Movie' : x.type].filter(Boolean).join(' · '))}</small></a>`;
+
+export const readCard = (s, opts = {}) => `<a class="card" href="#/series/${s.id}${gsuf(s)}"><div class="art"><img loading="lazy" src="${esc(kv.cover(s.id, s._g))}" alt="">${fromPill(s, 'kavita')}${opts.kindBadge ? typeBadge(kindOf(s)) : ''}${s.pagesRead && s.pages ? `<span class="bar"><i style="width:${Math.round((s.pagesRead / s.pages) * 100)}%"></i></span>` : ''}</div><b>${esc(s.name)}</b>${s.libraryName ? `<small>${esc(s.libraryName)}</small>` : ''}</a>`;
+export const requestCard = (x) => `<a class="card" href="#/request-item/${x.type}/${encodeURIComponent(x.id ?? x.key)}" data-key="${esc(x.key)}"><div class="art">${x.poster ? `<img loading="lazy" src="${esc(x.poster)}" alt="">` : `<div class="ph">${esc(x.title)}</div>`}${typeBadge(kindOf(x))}${x.status && x.status !== 'none' ? `<span class="badge ${x.status === 'available' ? 'ok' : 'amber'}">${esc(rq.STATUS[x.status] || x.status)}</span>` : ''}</div><b>${esc(x.title)}</b><small>${esc([x.year, x.author, x.type === 'tv' ? (x.anime ? 'Anime' : 'Show') : x.type === 'movie' ? 'Movie' : x.type].filter(Boolean).join(' · '))}</small></a>`;
 
 // ── Libraries ───────────────────────────────────────────────────────────
 const SORTS = [['SortName', 'Name'], ['DateCreated', 'Recently added'], ['PremiereDate', 'Release date'], ['CommunityRating', 'Rating'], ['DatePlayed', 'Recently watched'], ['Random', 'Random']];
@@ -513,11 +517,19 @@ async function personPage(p) {
 }
 
 // ── Search (everything at once) ────────────────────────────────────────
-route('search', (q = '') => {
+let searchFilter = null;
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-search-category]');
+  if (!tab || !searchFilter?.alive()) return;
+  e.preventDefault(); searchFilter.select(tab.dataset.searchCategory);
+});
+route('search', (q = '', category = 'all') => {
+  category = validCategory(category);
   q = q.trim();
   if (q.length < 2) return `<div class="empty"><h2>Search</h2><p>Type at least two letters in the search box.</p></div>`;
   const heading = `<div class="page-head"><div><span class="kicker">Search</span><h1>${esc(q)}</h1></div></div>`;
-  return heading + defer(async (publish, alive) => {
+  const tabs = categoryTabs(category, 'data-search-category', (k) => `#/search/${encodeURIComponent(q)}/${k}`);
+  return heading + tabs + defer(async (publish, alive) => {
     const video = new Map(), reading = new Map(); let req = null, pending = 0;
     const paint = () => {
       if (!alive()) return;
@@ -528,26 +540,37 @@ route('search', (q = '') => {
   const people = items.filter((i) => i.Type === 'Person');
   const series = read?.series || [];
   const onServer = new Set(titles.map((t) => t.Name.toLowerCase()));
-  const toRequest = (req?.video || []).filter((x) => x.status !== 'available' && !onServer.has(x.title.toLowerCase()));
-  const toReadRequest = (req?.reading || []).filter((x) => x.status !== 'available');
+  const toRequest = (req?.video || []).filter((x) => !onServer.has(x.title.toLowerCase()));
+  const localReading = new Set(series.map((s) => String(s.name || '').toLowerCase()));
+  const toReadRequest = (req?.reading || []).filter((x) => !localReading.has(String(x.title || '').toLowerCase()));
+  const readingType = (s) => { const match = (req?.reading || []).find((x) => x.title?.toLowerCase() === (s.name || '').toLowerCase()); return match ? kindOf(match) : kindOf(s); };
+  const entries = [
+    ...titles.map((i) => ({ kind: kindOf(i), html: card(i, { kindBadge: true }) })),
+    ...toRequest.map((i) => ({ kind: kindOf(i), html: requestCard(i) })),
+    ...series.map((s) => { const k = readingType(s); return { kind: k === 'other' ? 'reading' : k, html: readCard({ id: s.seriesId, name: s.name, libraryName: s.libraryName, format: s.format, _category: k, _g: s._g }, { kindBadge: true }) }; }),
+    ...toReadRequest.map((i) => ({ kind: kindOf(i), html: requestCard(i) })),
+  ];
   const sections = [
-    titles.length ? `<section class="row"><div class="row-head"><h3>On your server</h3></div><div class="grid">${titles.map((i) => card(i)).join('')}</div></section>` : '',
-    eps.length ? shelf('Episodes', eps.map((i) => card(i, { wide: true })).join(''), '', true) : '',
-    series.length ? `<section class="row"><div class="row-head"><h3>To read</h3></div><div class="grid">${series.map((s) => readCard({ id: s.seriesId, name: s.name, libraryName: s.libraryName, _g: s._g })).join('')}</div></section>` : '',
-    people.length ? `<section class="row"><div class="row-head"><h3>People</h3></div><div class="people">${people.map((p) => `<a class="person" href="#/item/${p.Id}" style="text-decoration:none"><div class="face">${jf.img(p, 'Primary', 200) ? `<img loading="lazy" src="${esc(jf.img(p, 'Primary', 200))}" alt="">` : ''}</div><b>${esc(p.Name)}</b></a>`).join('')}</div></section>` : '',
-    toRequest.length ? `<section class="row"><div class="row-head"><h3>Not here yet? Request it</h3></div><div class="grid">${toRequest.slice(0, 24).map(requestCard).join('')}</div></section>` : '',
-    toReadRequest.length ? `<section class="row"><div class="row-head"><h3>Books, manga and comics to request</h3></div><div class="grid">${toReadRequest.slice(0, 24).map(requestCard).join('')}</div></section>` : '',
+    groupedResults(entries, category),
+    (category === 'all' || category === 'tv' || category === 'anime') && eps.length ? shelf(`Episodes (${eps.length})`, eps.filter((i) => category !== 'anime' || kindOf(i) === 'anime').map((i) => card(i, { wide: true })).join(''), '', true) : '',
+    category === 'all' && people.length ? `<section class="row"><div class="row-head"><h3>People (${people.length})</h3></div><div class="people">${people.map((p) => `<a class="person" href="#/item/${p.Id}${gsuf(p)}"><div class="face">${jf.img(p, 'Primary', 200) ? `<img loading="lazy" src="${esc(jf.img(p, 'Primary', 200))}" alt="">` : ''}</div><b>${esc(p.Name)}</b></a>`).join('')}</div></section>` : '',
   ];
   sections.forEach((html, index) => publish(html, index));
   publish(pending ? '<p class="mute">Searching other sources…</p>' : sections.some(Boolean) ? '' : '<div class="empty"><h2>No results</h2><p>No matching titles were returned.</p></div>', 99);
 
     };
+    searchFilter = { alive, select(k) {
+      category = validCategory(k);
+      $$('[data-search-category]').forEach((tab) => { const on = tab.dataset.searchCategory === category; tab.classList.toggle('on', on); if (on) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current'); });
+      history.replaceState(null, '', `#/search/${encodeURIComponent(q)}/${category}`); paint();
+    } };
     const jobs = [];
     const job = (fetch, accept) => {
       pending++;
       jobs.push(Promise.resolve().then(fetch).then((data) => { if (alive()) accept(data); }).catch(() => {}).finally(() => { pending--; paint(); }));
     };
     for (const owner of groups.with('jellyfin')) {
+      job(() => groups.run(owner, () => jf.views()), (views) => registerLibraries(owner, views));
       // Movies and shows can arrive without waiting for the larger episode/person search.
       for (const types of ['Movie,Series,BoxSet', 'Episode,Person']) job(
         () => groups.run(owner, () => jf.search(q, types)),

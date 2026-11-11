@@ -61,7 +61,7 @@ export async function quickConnectPoll(url, secret) {
 }
 export async function signOut() { try { await api('/Sessions/Logout', { method: 'POST' }); } catch {} settings.servers.jellyfin = null; save(); }
 
-const FIELDS = 'PrimaryImageAspectRatio,Overview,Genres,CommunityRating,OfficialRating,ProductionYear,RunTimeTicks,UserData,ChildCount,SeriesInfo,ParentId,ImageTags,BackdropImageTags,ParentBackdropImageTags,SeriesPrimaryImageTag,EndDate,Status,ProviderIds';
+const FIELDS = 'PrimaryImageAspectRatio,Overview,Genres,CommunityRating,OfficialRating,ProductionYear,RunTimeTicks,UserData,ChildCount,SeriesInfo,ParentId,ImageTags,BackdropImageTags,ParentBackdropImageTags,SeriesPrimaryImageTag,EndDate,Status,ProviderIds,ProductionLocations,Tags';
 const U = () => `/Users/${S().userId}`;
 export const views = () => api(`${U()}/Views`).then((r) => r.Items || []);
 export const resume = (limit = 16) => api(`${U()}/Items/Resume?Limit=${limit}&MediaTypes=Video&Fields=${FIELDS}&EnableImageTypes=Primary,Backdrop,Thumb`).then((r) => r.Items || []);

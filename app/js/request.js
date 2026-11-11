@@ -1,25 +1,30 @@
 // Request pages: browse, search, a title's request page, and "My requests".
-import { $, $$, esc, icon, route, go, toast, settings, save, desktop, modal, loading } from './core.js';
+import { $, $$, esc, icon, route, go, defer, toast, settings, save, desktop, modal, loading } from './core.js';
+import { categoryTabs, groupedResults, kindOf, validCategory } from './categories.js';
 import * as rq from './requests.js';
 import { requestCard, needServer } from './watch.js';
 
-const KINDS = () => [['trending', 'Trending'], ['movie', 'Movies'], ['tv', 'Shows'], ['anime', 'Anime'], ['upcoming', 'Coming soon'], ...(rq.canRead() ? [['book', 'Books'], ['manga', 'Manga'], ['comic', 'Comics']] : [])];
+
 const seen = rq.seen;
 
 route('request', async (kind = 'trending') => {
+  kind = ['trending', 'upcoming'].includes(kind) ? kind : validCategory(kind);
+  if (kind === 'all') kind = 'trending';
   if (!rq.provider()) return needServer('a request server (Seerr or an ask site)');
   setTimeout(() => more(kind, 1), 0);
   return `<div class="page-head"><div><span class="kicker">Request</span><h1>Ask for something new</h1><p>Movies, shows and anime${rq.canRead() ? ', plus books, manga and comics' : ''}. It shows up on the server once it's approved.</p></div><a class="btn" href="#/requests">${icon('inbox')} My requests</a></div>
     <form class="field" id="rq-search" style="max-width:560px;margin-bottom:14px">${icon('search')}<input name="q" placeholder="Search for something to request" autocomplete="off"></form>
-    <div class="chips">${KINDS().map(([k, l]) => `<a class="chip ${k === kind ? 'on' : ''}" href="#/request/${k}" style="text-decoration:none">${l}</a>`).join('')}</div>
-    <div class="grid" id="rq-grid" data-kind="${kind}">${loading(18)}</div><div class="acts" style="justify-content:center;margin-top:20px"><button class="btn" id="rq-more" hidden>Load more</button></div>`;
+    ${categoryTabs(kind === 'trending' ? 'all' : kind, 'data-browse-category', (k) => `#/request/${k === 'all' ? 'trending' : k}`)}<a class="btn small" href="#/request/upcoming" style="margin-bottom:20px">Coming soon</a>
+    <div id="rq-grid" data-kind="${kind}">${loading(18)}</div><div class="acts" style="justify-content:center;margin-top:20px"><button class="btn" id="rq-more" hidden>Load more</button></div>`;
 });
 async function more(kind, page) {
   const grid = $('#rq-grid'); if (!grid) return;
   try {
     const d = await rq.discover(kind, page);
-    const html = (d.items || []).map(requestCard).join('');
-    if (page === 1) grid.innerHTML = html || '<div class="empty" style="grid-column:1/-1"><h2>Nothing here</h2></div>'; else grid.insertAdjacentHTML('beforeend', html);
+    if (!grid.isConnected || grid !== $('#rq-grid')) return;
+    grid.requestItems = page === 1 ? (d.items || []) : [...(grid.requestItems || []), ...(d.items || [])];
+    const html = groupedResults(grid.requestItems.map((x) => ({kind: kindOf(x), html: requestCard(x)})), kind === 'trending' || kind === 'upcoming' ? 'all' : validCategory(kind));
+    grid.innerHTML = html || '<div class="empty"><h2>Nothing here</h2></div>';
     const b = $('#rq-more'); if (b) { b.hidden = !d.more; b.onclick = () => more(kind, page + 1); }
   } catch (e) { grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><h2>Couldn't load this list</h2><p>${esc(e.message)}</p></div>`; }
 }
@@ -27,13 +32,39 @@ document.addEventListener('submit', async (e) => {
   if (e.target.id !== 'rq-search') return;
   e.preventDefault();
   const q = e.target.q.value.trim(); if (q.length < 2) return;
-  const grid = $('#rq-grid'); grid.innerHTML = loading(12); $('#rq-more').hidden = true;
-  $$('.chips .chip').forEach((c) => c.classList.remove('on'));
-  try {
-    const d = await rq.search(q);
-    const all = [...(d.video || []), ...(d.reading || [])];
-    grid.innerHTML = all.map(requestCard).join('') || '<div class="empty" style="grid-column:1/-1"><h2>No results</h2></div>';
-  } catch (err) { grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><h2>Search failed</h2><p>${esc(err.message)}</p></div>`; }
+  go(`/request-search/${encodeURIComponent(q)}/all`);
+});
+
+let requestSearchFilter = null;
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-request-category]');
+  if (!tab || !requestSearchFilter?.alive()) return;
+  e.preventDefault(); requestSearchFilter.select(tab.dataset.requestCategory);
+});
+route('request-search', (q = '', category = 'all') => {
+  if (!rq.provider()) return needServer('a request server');
+  category = validCategory(category);
+  return `<div class="page-head"><div><span class="kicker">Request</span><h1>Results for “${esc(q)}”</h1></div><a class="btn" href="#/requests">${icon('inbox')} My requests</a></div>
+    <form class="field" id="rq-search" style="max-width:680px;margin-bottom:18px">${icon('search')}<input name="q" value="${esc(q)}" placeholder="Search movies, shows, anime, books, manga" autocomplete="off" aria-label="Search requests"></form>`
+    + categoryTabs(category, 'data-request-category', (k) => `#/request-search/${encodeURIComponent(q)}/${k}`)
+    + defer(async (publish, alive) => {
+      let entries = null;
+      const paint = () => {
+        if (!alive() || !entries) return;
+        const html = groupedResults(entries, category);
+        const needsReading = ['book', 'manga', 'comic'].includes(category) && !rq.canRead();
+        publish(html || `<div class="empty"><h2>No matching results</h2><p>${needsReading ? 'Connect a request site in Settings to search books, manga and comics.' : 'Try another category or search term.'}</p></div>`);
+      };
+      requestSearchFilter = { alive, select(k) {
+        category = validCategory(k);
+        $$('[data-request-category]').forEach((tab) => { const on = tab.dataset.requestCategory === category; tab.classList.toggle('on', on); if (on) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current'); });
+        history.replaceState(null, '', `#/request-search/${encodeURIComponent(q)}/${category}`); paint();
+      } };
+      const d = await rq.search(q);
+      if (!alive()) return;
+      entries = [...(d.video || []), ...(d.reading || [])].map((x) => ({ kind: kindOf(x), html: requestCard(x) }));
+      paint();
+    }, loading(12));
 });
 
 // A title's request page

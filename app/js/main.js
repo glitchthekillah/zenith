@@ -50,7 +50,7 @@ function topBar() {
 }
 function paintNav() {
   const { name } = current();
-  const group = { item: 'home', library: 'home', series: 'read', 'request-item': 'request', requests: 'request' }[name] || name;
+  const group = { item: 'home', library: 'home', series: 'read', 'request-item': 'request', 'request-search': 'request', requests: 'request' }[name] || name;
   $$('[data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === group));
 }
 on('route', paintNav);

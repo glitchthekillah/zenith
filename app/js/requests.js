@@ -2,10 +2,10 @@
 //  - an "ask" site (like zenith's): movies, shows, anime, books, manga and comics
 //  - Seerr / Jellyseerr / Overseerr: movies, shows and anime
 // When both are set up, the ask site is used (it covers everything).
-import { http, settings, save } from './core.js';
+import { http, settings, save, groups } from './core.js';
 import * as seerr from './seerr.js';
 
-const A = () => settings.servers.ask;
+const A = () => groups.srv('ask');
 const ask = (path, opts = {}) => http(A().url + path, { ...opts, headers: { 'x-ask': '1', ...(opts.headers || {}) } });
 // What lists and searches returned, so a title's page has what its card had
 export const seen = new Map();

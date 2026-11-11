@@ -660,3 +660,24 @@ html.glide,html.glide *,html.glide *::before,html.glide *::after{transition:back
 /* Request-style scroll budget: keep cards clickable and preserve keyboard focus. */
 body.scrolling .card:hover:not(:focus-visible) .art{transform:none;box-shadow:0 14px 30px -16px #000,inset 0 0 0 1px rgba(255,255,255,.06);transition:none}
 body.scrolling .card:hover:not(:focus-visible) .play-over{opacity:0;transition:none}
+
+/* Consistent category filters and media labels in Search and Requests. */
+.category-tabs{display:flex;flex-wrap:wrap;gap:4px;width:fit-content;max-width:100%;padding:5px;margin:0 0 24px;border:1px solid var(--line);border-radius:17px;background:var(--glass)}
+.category-tabs .chip{display:inline-flex;align-items:center;gap:8px;text-decoration:none;white-space:nowrap;border-color:transparent}
+.category-results{margin-top:24px}
+.media-type{position:absolute;right:8px;bottom:8px;padding:4px 7px;border-radius:7px;background:rgba(8,7,14,.85);color:#fff;font-size:10px;font-weight:700;line-height:1.2;letter-spacing:.04em;text-transform:uppercase;z-index:2}
+
+/* A full, uncropped banner alongside its own text panel. Hidden slides share
+   the grid cell so the carousel keeps a steady height while changing slides. */
+.hero.hero-split{display:grid;position:relative;min-height:0;padding:0 0 36px;background:#000;isolation:isolate;align-items:stretch}
+.hero.hero-split::after,.hero-split .hero-slide::after{display:none}
+.hero-split .hero-slide{position:relative;inset:auto;display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.25fr);grid-area:1/1;align-items:center;min-width:0}
+.hero-split .hero-slide[hidden]{display:grid!important;visibility:hidden;pointer-events:none}
+.hero-split .hero-slide:not([hidden]){z-index:1}
+.hero-split .hero-in{position:relative;background:#000;max-width:none;padding:clamp(22px,3vw,40px);min-width:0}
+.hero-split .hero-in h2{overflow-wrap:anywhere;font-size:clamp(25px,3vw,42px);line-height:1.1}
+.hero-split .hero-in p{max-width:none;overflow-wrap:anywhere;display:block;overflow:visible;-webkit-line-clamp:unset}
+.hero-split .hero-art{width:100%;aspect-ratio:16/9;min-width:0;background:#000;display:grid;place-items:center}
+.hero.hero-split .hero-slide img{position:static;width:100%;height:100%;object-fit:contain;animation:none;border-radius:0}
+.hero-split .hero-dots{bottom:11px;right:20px;z-index:3}
+@media(max-width:860px){.hero-split .hero-slide{grid-template-columns:minmax(0,1fr)}.hero-split .hero-art{grid-row:1}.hero-split .hero-in{grid-row:2;padding:22px}.hero-split .hero-in h2{font-size:28px}}

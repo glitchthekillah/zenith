@@ -12,7 +12,7 @@ function watch(overrides={}) {
     defer:(run,fallback='')=>{jobs.push(run);return `<div>${fallback}</div>`;},
     jf:{ready:()=>true,item:async()=>({Id:'movie',Name:'A movie',Type:'Movie',MediaSources:[],UserData:{}}),img:()=>'',similar:never,views:never,genres:never},
     kv:{},rq:{provider:()=>false},player:{isOpen:()=>false},...overrides};
-  vm.createContext(c);vm.runInContext(source('watch').replace(/^import .*;\r?\n/gm,'').replace(/^export /gm,''),c);
+  vm.createContext(c);vm.runInContext(source('categories').replace(/^import .*;\r?\n/gm,'').replace(/^export /gm,''),c);vm.runInContext(source('watch').replace(/^import .*;\r?\n/gm,'').replace(/^export /gm,''),c);
   c.prePlay=async()=>'';
   vm.runInContext('globalThis.testCache={remember,known};',c);
   return {c,routes,jobs};
