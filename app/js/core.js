@@ -62,7 +62,7 @@ export const gsuf = (x) => (x?._g && settings.groups.length > 1 ? '@' + x._g : '
 // A stable id for this install (servers use it to tell devices apart)
 export const deviceId = (() => { let id = localStorage.getItem('zenith-device'); if (!id) { id = crypto.randomUUID().replace(/-/g, ''); try { localStorage.setItem('zenith-device', id); } catch {} } return id; })();
 const webSession = (() => { let id = sessionStorage.getItem('zenith-web') || localStorage.getItem('zenith-web'); if (!id) { id = crypto.randomUUID().replace(/-/g, ''); try { localStorage.setItem('zenith-web', id); } catch {} } return id; })();
-export const VERSION = '0.2.0';
+export const VERSION = '0.2.1';
 
 // ── Requests to the user's servers ────────────────────────────────────
 // The desktop app makes them itself; the web version goes through its small server.
@@ -99,17 +99,56 @@ export const route = (name, fn) => { routes[name] = fn; };
 export const go = (hash) => { if (location.hash === '#' + hash) render(); else location.hash = hash; };
 export const current = () => { const [name, ...rest] = location.hash.replace(/^#\/?/, '').split('/'); return { name: name || settings.app.startPage || 'home', args: rest.map(decodeURIComponent) }; };
 let renderId = 0;
+let sectionId = 0;
+const deferred = new Map();
+// Optional work starts only after the page is visible. Each result belongs to the
+// mounted page, so navigating away cannot paint a late response into a new page.
+export function defer(work, fallback = '') {
+  const key = String(++sectionId);
+  deferred.set(key, work);
+  return `<div data-defer="${key}">${fallback}</div>`;
+}
+function mountDeferred(root, id) {
+  for (const el of root.querySelectorAll('[data-defer]')) {
+    const work = deferred.get(el.dataset.defer);
+    if (!work) continue;
+    deferred.delete(el.dataset.defer);
+    const alive = () => id === renderId && el.isConnected;
+    const publish = (html, part) => {
+      if (!alive() || typeof html !== 'string') return;
+      let target = el;
+      if (part !== undefined) {
+        // Home streams several shelves. Replace only the shelf that changed so
+        // images, focused controls and the hero on other shelves stay intact.
+        target = [...el.children].find((x) => x.dataset.part === String(part));
+        if (!target) {
+          if (!el.dataset.streaming) { el.innerHTML = ''; el.dataset.streaming = '1'; }
+          target = document.createElement('div'); target.dataset.part = String(part);
+          el.insertBefore(target, [...el.children].find((x) => Number(x.dataset.part) > Number(part)) || null);
+        }
+      }
+      target.innerHTML = html;
+      mountDeferred(target, id);
+      emit('rendered');
+    };
+    Promise.resolve().then(() => alive() ? work(publish, alive) : undefined)
+      .then(publish).catch((e) => { if (alive()) el.innerHTML = errorBox(e, false); });
+  }
+}
 export async function render() {
   const { name, args } = current();
   const id = ++renderId;
+  deferred.clear();
   const view = $('#view');
   emit('route', { name, args });
   const fn = routes[name] || routes.home;
   view.setAttribute('aria-busy', 'true');
+  view.innerHTML = loading(12);
   try {
     const html = await fn(...args);
     if (id !== renderId) return; // a newer page was opened meanwhile
     if (typeof html === 'string') { view.innerHTML = html; view.scrollTop = 0; window.scrollTo(0, 0); }
+    mountDeferred(view, id);
     emit('rendered', { name, args });
   } catch (e) {
     if (id !== renderId) return;

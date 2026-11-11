@@ -9,7 +9,31 @@ const SI = (it) => (it?._g && groups.byId(it._g)?.servers?.jellyfin) || S();
 const CLIENT = desktop ? 'Zenith Desktop' : 'Zenith Web';
 const DEVICE = desktop ? (navigator.userAgentData?.platform || 'Desktop') : 'Browser';
 const authHeader = (token) => `MediaBrowser Client="${CLIENT}", Device="${DEVICE}", DeviceId="${deviceId}", Version="${VERSION}"${token ? `, Token="${token}"` : ''}`;
-const api = (path, opts = {}) => http(S().url + path, { ...opts, headers: { Authorization: authHeader(S().token), ...(opts.headers || {}) } }).then((d) => { collect(d); return d; });
+const recentRequests = new Map();
+function api(path, opts = {}) {
+  const server = S(), url = server.url + path;
+  const headers = { Authorization: authHeader(server.token), ...(opts.headers || {}) };
+  const get = !opts.method || opts.method === 'GET';
+  // Tabs and play buttons often ask for the same item at once. Coalesce those
+  // requests and keep successful reads briefly; writes always invalidate them.
+  const key = JSON.stringify([url, headers]);
+  if (!get) recentRequests.clear();
+  let entry = get && recentRequests.get(key);
+  if (!entry || entry.expires < Date.now()) {
+    entry = { expires: Infinity };
+    entry.promise = http(url, { ...opts, headers }).then((d) => {
+      collect(d); entry.expires = Date.now() + 5000; return d;
+    }, (e) => { if (recentRequests.get(key) === entry) recentRequests.delete(key); throw e; });
+    if (get) {
+      for (const [k, v] of recentRequests) if (v.expires < Date.now()) recentRequests.delete(k);
+      if (recentRequests.size >= 100) recentRequests.delete(recentRequests.keys().next().value);
+      recentRequests.set(key, entry);
+    }
+  }
+  // Lists are tagged with their source group; never share mutable objects across
+  // two groups that happen to use the same server and account.
+  return entry.promise.then((d) => d && typeof d === 'object' ? JSON.parse(JSON.stringify(d)) : d);
+}
 export const ready = () => !!S()?.token;
 
 export async function publicInfo(url) { return http(url + '/System/Info/Public'); }

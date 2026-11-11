@@ -8,7 +8,7 @@ test('English audio uses only forced English subtitles in smart mode',()=>assert
 test('subtitle off overrides matching tracks',()=>assert.equal(tracks({subtitles:'off'}).pickSub(subs,audio[0]),null));
 test('subtitle always selects full subtitles for English audio',()=>assert.equal(tracks({subtitles:'always'}).pickSub(subs,audio[2]),4));
 test('cue markup keeps italics and strips executable tags',()=>{const h=tracks().cueHtml('<i>Hello</i><img src=x onerror=alert(1)>');assert.equal(h,'<i>Hello</i>')});
-async function start(rewatch,episodes){const s=fs.readFileSync('app/js/watch.js','utf8');const part=s.slice(s.indexOf('export async function startEpisode'),s.indexOf('// ── Actions on cards'));const c={settings:{app:{rewatch}},jf:{allEpisodes:async()=>episodes},remember:x=>x};vm.createContext(c);vm.runInContext(part.replace('export ',''),c);return c.startEpisode('show');}
+async function start(rewatch,episodes){const s=fs.readFileSync('app/js/watch.js','utf8');const part=s.slice(s.indexOf('export async function startEpisode'),s.indexOf('// ── Actions on cards'));const c={groups:{active:()=>({id:'g'}),run:(_g,f)=>f(),tag:(_g,x)=>x},settings:{app:{rewatch}},jf:{allEpisodes:async()=>episodes},remember:x=>x};vm.createContext(c);vm.runInContext(part.replace('export ',''),c);return c.startEpisode('show');}
 const episodes=()=>[1,2,3].map(n=>({Id:String(n),IndexNumber:n,ParentIndexNumber:1,UserData:{Played:true,LastPlayedDate:n===1?'2026-11-03T02:00:00Z':'2026-10-01T00:00:00Z'}}));
 test('rewatch continues after the most recently finished episode',async()=>assert.equal((await start(true,episodes())).Id,'2'));
 test('rewatch disabled retains the normal completed-series restart',async()=>assert.equal((await start(false,episodes())).Id,'1'));
