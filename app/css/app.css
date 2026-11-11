@@ -669,15 +669,15 @@ body.scrolling .card:hover:not(:focus-visible) .play-over{opacity:0;transition:n
 
 /* A full, uncropped banner alongside its own text panel. Hidden slides share
    the grid cell so the carousel keeps a steady height while changing slides. */
-.hero.hero-split{display:grid;position:relative;min-height:0;padding:0 0 36px;background:#000;isolation:isolate;align-items:stretch}
+.hero.hero-split{display:grid;position:relative;min-height:0;padding:0;background:#000;isolation:isolate;align-items:stretch}
 .hero.hero-split::after,.hero-split .hero-slide::after{display:none}
-.hero-split .hero-slide{position:relative;inset:auto;display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.25fr);grid-area:1/1;align-items:center;min-width:0}
+.hero-split .hero-slide{position:relative;inset:auto;display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr);grid-area:1/1;align-items:stretch;min-width:0}
 .hero-split .hero-slide[hidden]{display:grid!important;visibility:hidden;pointer-events:none}
 .hero-split .hero-slide:not([hidden]){z-index:1}
-.hero-split .hero-in{position:relative;background:#000;max-width:none;padding:clamp(22px,3vw,40px);min-width:0}
+.hero-split .hero-in{position:relative;background:#000;max-width:none;padding:clamp(22px,3vw,40px);min-width:0;align-self:end}
 .hero-split .hero-in h2{overflow-wrap:anywhere;font-size:clamp(25px,3vw,42px);line-height:1.1}
 .hero-split .hero-in p{max-width:none;overflow-wrap:anywhere;display:block;overflow:visible;-webkit-line-clamp:unset}
-.hero-split .hero-art{width:100%;aspect-ratio:16/9;min-width:0;background:#000;display:grid;place-items:center}
+.hero-split .hero-art{width:100%;height:100%;aspect-ratio:16/9;min-width:0;background:#000;display:grid;place-items:center}
 .hero.hero-split .hero-slide img{position:static;width:100%;height:100%;object-fit:contain;animation:none;border-radius:0}
-.hero-split .hero-dots{bottom:11px;right:20px;z-index:3}
-@media(max-width:860px){.hero-split .hero-slide{grid-template-columns:minmax(0,1fr)}.hero-split .hero-art{grid-row:1}.hero-split .hero-in{grid-row:2;padding:22px}.hero-split .hero-in h2{font-size:28px}}
+.hero-split .hero-dots{bottom:18px;right:22px;z-index:3}
+@media(max-width:860px){.hero-split .hero-slide{grid-template-columns:minmax(0,1fr)}.hero-split .hero-art{grid-row:1}.hero-split .hero-in{grid-row:2;padding:22px}.hero-split .hero-dots{top:14px;bottom:auto;right:16px}.hero-split .hero-in h2{font-size:28px}}

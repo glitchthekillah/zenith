@@ -1,7 +1,7 @@
 import { esc, icon } from './core.js';
 
 export const CATEGORIES = [['all', 'Everything', 'grid'], ['movie', 'Movies', 'film'], ['tv', 'Shows', 'tv'], ['anime', 'Anime', 'star'], ['book', 'Books', 'book'], ['manga', 'Manga', 'manga'], ['comic', 'Comics', 'comic']];
-const labels = { movie: 'Movie', tv: 'Show', anime: 'Anime', book: 'Book', manga: 'Manga', comic: 'Comic' };
+const labels = { movie: 'Movie', tv: 'Show', anime: 'Anime', book: 'Book', manga: 'Manga', comic: 'Comic', collection: 'Collection' };
 const libraries = new Map();
 const readingKind = (s) => /manga|manhwa|manhua/i.test(s) ? 'manga' : /comic/i.test(s) ? 'comic' : /book|novel/i.test(s) ? 'book' : /anime/i.test(s) ? 'anime' : '';
 export const validCategory = (k) => CATEGORIES.some(([key]) => key === k) ? k : 'all';
@@ -18,7 +18,7 @@ export function kindOf(x) {
   if (['manga', 'manhwa', 'manhua'].includes(type)) return 'manga';
   if (['comic', 'comics'].includes(type)) return 'comic';
   if (['book', 'books', 'novel'].includes(type)) return 'book';
-  if (type === 'movie') return 'movie';
+  if (type === 'movie' || type === 'boxset') return 'movie';
   if (lib && lib !== 'anime') return lib;
   if (['tv', 'series', 'show', 'episode', 'season'].includes(type)) return 'tv';
   if (Number(x.format) === 3) return 'book';

@@ -13,7 +13,7 @@ route('request', async (kind = 'trending') => {
   if (!rq.provider()) return needServer('a request server (Seerr or an ask site)');
   setTimeout(() => more(kind, 1), 0);
   return `<div class="page-head"><div><span class="kicker">Request</span><h1>Ask for something new</h1><p>Movies, shows and anime${rq.canRead() ? ', plus books, manga and comics' : ''}. It shows up on the server once it's approved.</p></div><a class="btn" href="#/requests">${icon('inbox')} My requests</a></div>
-    <form class="field" id="rq-search" style="max-width:560px;margin-bottom:14px">${icon('search')}<input name="q" placeholder="Search for something to request" autocomplete="off"></form>
+    <form class="field" id="rq-search" data-kind="${kind === 'trending' || kind === 'upcoming' ? 'all' : kind}" style="max-width:560px;margin-bottom:14px">${icon('search')}<input name="q" placeholder="Search for something to request" autocomplete="off"></form>
     ${categoryTabs(kind === 'trending' ? 'all' : kind, 'data-browse-category', (k) => `#/request/${k === 'all' ? 'trending' : k}`)}<a class="btn small" href="#/request/upcoming" style="margin-bottom:20px">Coming soon</a>
     <div id="rq-grid" data-kind="${kind}">${loading(18)}</div><div class="acts" style="justify-content:center;margin-top:20px"><button class="btn" id="rq-more" hidden>Load more</button></div>`;
 });
@@ -32,7 +32,7 @@ document.addEventListener('submit', async (e) => {
   if (e.target.id !== 'rq-search') return;
   e.preventDefault();
   const q = e.target.q.value.trim(); if (q.length < 2) return;
-  go(`/request-search/${encodeURIComponent(q)}/all`);
+  go(`/request-search/${encodeURIComponent(q)}/${validCategory(e.target.dataset.kind)}`);
 });
 
 let requestSearchFilter = null;
@@ -45,7 +45,7 @@ route('request-search', (q = '', category = 'all') => {
   if (!rq.provider()) return needServer('a request server');
   category = validCategory(category);
   return `<div class="page-head"><div><span class="kicker">Request</span><h1>Results for “${esc(q)}”</h1></div><a class="btn" href="#/requests">${icon('inbox')} My requests</a></div>
-    <form class="field" id="rq-search" style="max-width:680px;margin-bottom:18px">${icon('search')}<input name="q" value="${esc(q)}" placeholder="Search movies, shows, anime, books, manga" autocomplete="off" aria-label="Search requests"></form>`
+    <form class="field" id="rq-search" data-kind="${category}" style="max-width:680px;margin-bottom:18px">${icon('search')}<input name="q" value="${esc(q)}" placeholder="Search movies, shows, anime, books, manga" autocomplete="off" aria-label="Search requests"></form>`
     + categoryTabs(category, 'data-request-category', (k) => `#/request-search/${encodeURIComponent(q)}/${k}`)
     + defer(async (publish, alive) => {
       let entries = null;
@@ -57,6 +57,7 @@ route('request-search', (q = '', category = 'all') => {
       };
       requestSearchFilter = { alive, select(k) {
         category = validCategory(k);
+        $('#rq-search').dataset.kind = category;
         $$('[data-request-category]').forEach((tab) => { const on = tab.dataset.requestCategory === category; tab.classList.toggle('on', on); if (on) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current'); });
         history.replaceState(null, '', `#/request-search/${encodeURIComponent(q)}/${category}`); paint();
       } };

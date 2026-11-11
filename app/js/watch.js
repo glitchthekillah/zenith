@@ -71,7 +71,7 @@ export function card(it, { wide = false, badge = '', asShow = false, kindBadge =
     <div class="art${wide ? ' wide' : ''}">${pic ? `<img loading="lazy" src="${esc(pic)}" alt="">` : `<div class="ph">${esc(title)}</div>`}
       ${badge ? `<span class="badge amber">${esc(badge)}</span>` : ''}
       ${it.UserData?.Played ? `<span class="check">${icon('check')}</span>` : unplayed ? `<span class="badge right pink">${unplayed}</span>` : ''}
-      ${kindBadge ? typeBadge(kindOf(it)) : ''}${pct ? `<span class="bar"><i style="width:${pct}%"></i></span>` : ''}${fromPill(it)}
+      ${kindBadge ? typeBadge(it.Type === 'BoxSet' ? 'collection' : kindOf(it)) : ''}${pct ? `<span class="bar"><i style="width:${pct}%"></i></span>` : ''}${fromPill(it)}
       ${['Movie', 'Episode'].includes(it.Type) || asShow ? `<span class="play-over"><span data-play="${playId}" title="Play">${icon('play')}</span></span>` : ''}
     </div><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</a>`;
 }
