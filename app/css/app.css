@@ -428,9 +428,11 @@ button.card>.art{width:100%;flex:none}
 .hello-stats a{display:flex;align-items:baseline;gap:6px;padding:6px 12px;border-radius:99px;border:1px solid var(--line2);background:rgba(255,255,255,.04);color:var(--mute);font-size:13px;text-decoration:none;transition:border-color .2s,color .2s}
 .hello-stats a:hover{border-color:rgba(var(--pink-rgb),.6);color:var(--text)}
 .hello-stats b{color:var(--text);font:700 15px var(--disp)}
-.hello-acts{display:flex;flex-direction:column;gap:8px;align-items:stretch}
-.hello-acts .btn{justify-content:flex-start;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-@media (max-width:860px){.hello{grid-template-columns:auto minmax(0,1fr)}.hello-acts{grid-column:1/-1;flex-direction:row;flex-wrap:wrap}}
+.hello-acts{display:flex;flex-direction:column;gap:8px;align-items:stretch;min-width:0;width:clamp(240px,28vw,360px);max-width:100%}
+.hello-acts .btn{justify-content:flex-start;max-width:100%;white-space:normal}
+.hello-resume-title{min-width:0;overflow-wrap:anywhere;line-height:1.35;text-align:left}
+.hello-acts .hello-resume{width:min(360px,100%);height:auto;min-height:38px;padding:10px 14px}
+@media (max-width:860px){.hello{grid-template-columns:auto minmax(0,1fr)}.hello-acts{grid-column:1/-1;flex-direction:row;flex-wrap:wrap;width:100%}}
 /* Home: hero gets a slow push-in */
 .hero{min-height:440px}
 .hero-slide:not([hidden]) img{animation:heroin .8s ease both,kenburns 14s ease-out both}

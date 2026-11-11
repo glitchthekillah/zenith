@@ -90,3 +90,11 @@ test('search paints the first responding server without waiting for others',asyn
  let html;Promise.resolve(w.routes.search('movie')).then(h=>html=h);await flush();assert.ok(html,'search waits for the slow server');
  await Promise.all(w.jobs.map(job=>{job(h=>out+=h,()=>true);return flush();}));assert.match(out,/Fast search movie/);
 });
+
+
+test('copy lookup falls back to a verified title search when provider filtering is ignored',async()=>{
+ const a={id:'a'},b={id:'b'},w=watch();w.c.groups.with=()=>[a,b];w.c.groups.active=()=>a;w.c.groups.byId=id=>id==='a'?a:b;w.c.groups.nameOf=g=>g.id;w.c.groups.tag=(g,list)=>{list.forEach(x=>x._g=g.id);return list;};
+ const own={Id:'own',Name:'Atlanta',Type:'Series',ProviderIds:{Tvdb:'313999'}},bad={Id:'wrong',Name:'Adventure Time',Type:'Series',ProviderIds:{Tvdb:'152831'}},good={Id:'atlanta',Name:'Atlanta',Type:'Series',ProviderIds:{Tvdb:'313999'}};let fallback=false;
+ w.c.jf.items=async opts=>{if(opts.search==='Atlanta'){fallback=true;return {Items:[good]};}return {Items:[bad]};};w.c.jf.item=async()=>good;
+ const html=await w.c.copiesBlock(own,a);assert.equal(fallback,true);assert.match(html,/#\/item\/atlanta@b/);assert.doesNotMatch(html,/wrong@b/);
+});

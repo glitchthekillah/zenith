@@ -186,7 +186,7 @@ function greeting(st, resumeTop, shuffle) {
   return `<section class="hello"><a class="hello-pic" href="#/settings" title="Change your picture">${avatarHtml(name || '?')}</a>
     <div class="hello-text"><span class="kicker">${esc(new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }))}</span><h1>${hi}${name ? `, <em>${esc(name)}</em>` : ''}</h1>
       ${chips.length ? `<div class="hello-stats">${chips.map(([n, l, href]) => `<a href="${href}"><b>${n}</b>${esc(l)}</a>`).join('')}</div>` : ''}</div>
-    <div class="hello-acts">${resumeTop ? `<button class="btn gold" data-play="${resumeTop.Id}" data-g="${esc(resumeTop._g)}">${icon('play')} Resume ${esc(resumeTop.SeriesName || resumeTop.Name)}</button>` : ''}${pick ? `<button class="btn" data-play="${pick.Id}" data-g="${esc(pick._g)}" title="${esc(pick.Name)}">${icon('shuffle')} Surprise me</button>` : ''}</div></section>`;
+    <div class="hello-acts">${resumeTop ? `<button class="btn gold hello-resume" data-play="${resumeTop.Id}" data-g="${esc(resumeTop._g)}">${icon('play')}<span class="hello-resume-title">Resume ${esc(resumeTop.SeriesName || resumeTop.Name)}</span></button>` : ''}${pick ? `<button class="btn" data-play="${pick.Id}" data-g="${esc(pick._g)}" title="${esc(pick.Name)}">${icon('shuffle')} Surprise me</button>` : ''}</div></section>`;
 }
 function hero(list) {
   if (!list.length) return '';
@@ -384,7 +384,16 @@ async function copiesBlock(it, owner = groups.active()) {
   if (!key) return '';
   const [k, v] = key.split(':');
   const prov = `${k[0].toUpperCase() + k.slice(1)}.${v}`;
-  const found = await Promise.all(groups.with('jellyfin').filter((g) => g.id !== here).map((g) => Promise.resolve(groups.run(g, () => jf.items({ provider: prov, types: it.Type, limit: 2 }))).then((r) => groups.tag(g, r.Items || []).find((x) => sameTitle(it, x)) || null).catch(() => null)));
+  const found = await Promise.all(groups.with('jellyfin').filter((g) => g.id !== here).map(async (g) => {
+    const match = (r) => groups.tag(g, r?.Items || []).find((x) => sameTitle(it, x)) || null;
+    try {
+      const exact = match(await groups.run(g, () => jf.items({ provider: prov, types: it.Type, limit: 2 })));
+      if (exact) return exact;
+      // Some Jellyfin versions ignore this provider filter and return their first
+      // alphabetical titles. Search by name, then verify IDs again before offering a copy.
+      return match(await groups.run(g, () => jf.items({ search: it.Name, types: it.Type, limit: 40 })));
+    } catch { return null; }
+  }));
   let copies = [it, ...found.filter(Boolean)];
   if (copies.length < 2) return '';
   // Quality of each copy (movies carry their file details; shows use their first episode's)
