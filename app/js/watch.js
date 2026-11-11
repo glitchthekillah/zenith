@@ -192,7 +192,7 @@ function greeting(st, resumeTop, shuffle) {
 }
 function hero(list) {
   if (!list.length) return '';
-  const slides = list.map((it, i) => `<div class="hero-slide" data-g="${esc(it._g || groups.active().id)}" data-i="${i}" ${i ? 'hidden' : ''}>
+  const slides = list.map((it, i) => `<div class="hero-slide" data-g="${esc(it._g || groups.active().id)}" data-i="${i}" ${i ? 'hidden inert aria-hidden="true"' : 'aria-hidden="false"'}>
     <div class="hero-in"><span class="kicker">New on ${esc(groups.nameOf(groups.byId(it._g) || groups.active()))}</span><h2>${esc(it.Type === 'Episode' ? it.SeriesName : it.Name)}</h2><div class="meta">${[it.ProductionYear, it.OfficialRating, fmtRuntime(it.RunTimeTicks), it.CommunityRating ? `${it.CommunityRating.toFixed(1)} rating` : '', (it.Genres || []).slice(0, 2).join(', ')].filter(Boolean).map(esc).join('<span>·</span>')}</div><p>${esc(it.Overview)}</p><div class="acts"><button class="btn gold big" data-play="${it.SeriesId || it.Id}">${icon('play')} Play</button><a class="btn big" href="#/item/${it.SeriesId || it.Id}${gsuf(it)}">More info</a></div></div>
     <div class="hero-art"><img src="${esc(jf.img(it, 'Backdrop', 1600))}" alt=""></div></div>`).join('');
   return `<section class="hero hero-split" id="hero">${slides}<div class="hero-dots">${list.map((_, i) => `<button data-hero="${i}" class="${i ? '' : 'on'}" aria-label="Slide ${i + 1}"></button>`).join('')}</div></section>`;
@@ -205,7 +205,7 @@ function bindHero() {
   const slides = $$('.hero-slide', h);
   if (slides.length < 2) return;
   let i = 0;
-  const show = (n) => { i = (n + slides.length) % slides.length; slides.forEach((s, k) => { s.hidden = k !== i; }); $$('[data-hero]', h).forEach((b, k) => b.classList.toggle('on', k === i)); };
+  const show = (n) => { i = (n + slides.length) % slides.length; slides.forEach((s, k) => { s.hidden = k !== i; s.inert = k !== i; s.setAttribute('aria-hidden', String(k !== i)); }); $$('[data-hero]', h).forEach((b, k) => b.classList.toggle('on', k === i)); };
   h.onclick = (e) => { const b = e.target.closest('[data-hero]'); if (b) { show(Number(b.dataset.hero)); clearInterval(heroTimer); } };
   heroTimer = setInterval(() => { if (!document.hidden && !player.isOpen()) show(i + 1); }, 9000);
 }

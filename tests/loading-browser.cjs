@@ -47,6 +47,23 @@ const start=(file,env={})=>{const c=spawn(process.execPath,[file],{cwd:root,env:
   await page.setViewportSize({width:1280,height:820});
   if(process.env.ZENITH_REVIEW_DIR){require('fs').mkdirSync(process.env.ZENITH_REVIEW_DIR,{recursive:true});await page.locator('#hero').screenshot({path:path.join(process.env.ZENITH_REVIEW_DIR,'hero.png')});}
   console.log('Hero banner stays complete in a separate side panel and stacks on narrow windows');
+  const slideDots=page.locator('#hero [data-hero]');
+  assert(await slideDots.count()>1,'carousel fixture needs multiple slides');
+  await slideDots.nth(1).click();
+  await page.waitForTimeout(100);
+  const blend=await page.locator('#hero .hero-slide:not([hidden])').evaluate(el=>({opacity:Number(getComputedStyle(el).opacity),inert:el.inert,hidden:el.getAttribute('aria-hidden')}));
+  assert(blend.opacity>0&&blend.opacity<1,'slide switch must crossfade rather than cut');
+  assert.equal(blend.inert,false);assert.equal(blend.hidden,'false');
+  assert.equal(await page.locator('#hero .hero-slide[hidden]').evaluateAll(els=>els.every(el=>el.inert&&el.getAttribute('aria-hidden')==='true')),true,'inactive slide controls remain accessible');
+  await page.waitForTimeout(800);
+  assert.equal(await page.locator('#hero .hero-slide:not([hidden])').evaluate(el=>getComputedStyle(el).opacity),'1');
+  const seam=await page.locator('#hero .hero-slide:not([hidden]) .hero-art').evaluate(el=>({gradient:getComputedStyle(el,'::after').backgroundImage,clicks:getComputedStyle(el,'::after').pointerEvents}));
+  assert.match(seam.gradient,/linear-gradient/);assert.equal(seam.clicks,'none');
+  await page.emulateMedia({reducedMotion:'reduce'});await slideDots.first().click();
+  assert.equal(await page.locator('#hero .hero-slide:not([hidden])').evaluate(el=>getComputedStyle(el).transitionDuration),'0s');
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  console.log('Hero crossfades smoothly, inactive controls stay inert, seam fades into black and reduced motion is respected');
+
   t=Date.now();await page.locator('nav a[href="#/movies"]').click();
   await page.locator('#lib-grid .card:not(.skeleton)').first().waitFor({timeout:1500});console.log('Movies first titles:',Date.now()-t,'ms (genres and secondary server pending)');
   t=Date.now();await page.locator('#lib-grid a[href*="/item/"] b').first().click();

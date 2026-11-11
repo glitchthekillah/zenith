@@ -671,13 +671,18 @@ body.scrolling .card:hover:not(:focus-visible) .play-over{opacity:0;transition:n
    the grid cell so the carousel keeps a steady height while changing slides. */
 .hero.hero-split{display:grid;position:relative;min-height:0;padding:0;background:#000;isolation:isolate;align-items:stretch}
 .hero.hero-split::after,.hero-split .hero-slide::after{display:none}
-.hero-split .hero-slide{position:relative;inset:auto;display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr);grid-area:1/1;align-items:stretch;min-width:0}
-.hero-split .hero-slide[hidden]{display:grid!important;visibility:hidden;pointer-events:none}
+.hero-split .hero-slide{position:relative;inset:auto;display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr);grid-area:1/1;align-items:stretch;min-width:0;opacity:1;visibility:visible;transition:opacity .75s cubic-bezier(.22,1,.36,1),visibility 0s}
+.hero-split .hero-slide[hidden]{display:grid!important;opacity:0;visibility:hidden;pointer-events:none;transition:opacity 0s .75s,visibility 0s .75s}
 .hero-split .hero-slide:not([hidden]){z-index:1}
+.hero-split .hero-slide[hidden] .hero-in{visibility:hidden}
 .hero-split .hero-in{position:relative;background:#000;max-width:none;padding:clamp(22px,3vw,40px);min-width:0;align-self:end}
 .hero-split .hero-in h2{overflow-wrap:anywhere;font-size:clamp(25px,3vw,42px);line-height:1.1}
 .hero-split .hero-in p{max-width:none;overflow-wrap:anywhere;display:block;overflow:visible;-webkit-line-clamp:unset}
-.hero-split .hero-art{width:100%;height:100%;aspect-ratio:16/9;min-width:0;background:#000;display:grid;place-items:center}
+.hero-split .hero-art{position:relative;width:100%;height:100%;aspect-ratio:16/9;min-width:0;background:#000;display:grid;place-items:center}
+@media(min-width:861px){.hero-split .hero-art::after{content:"";position:absolute;inset:0 auto 0 0;width:clamp(40px,7vw,120px);background:linear-gradient(to right,#000 0%,rgba(0,0,0,.65) 35%,transparent 100%);pointer-events:none}}
+.hero-split .hero-slide:not([hidden]) .hero-in{animation:hero-text-reveal .7s cubic-bezier(.22,1,.36,1) both}
+@keyframes hero-text-reveal{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.hero-split .hero-slide,.hero-split .hero-slide[hidden]{transition:none}.hero-split .hero-slide:not([hidden]) .hero-in{animation:none}}
 .hero.hero-split .hero-slide img{position:static;width:100%;height:100%;object-fit:contain;animation:none;border-radius:0}
 .hero-split .hero-dots{bottom:18px;right:22px;z-index:3}
 @media(max-width:860px){.hero-split .hero-slide{grid-template-columns:minmax(0,1fr)}.hero-split .hero-art{grid-row:1}.hero-split .hero-in{grid-row:2;padding:22px}.hero-split .hero-dots{top:14px;bottom:auto;right:16px}.hero-split .hero-in h2{font-size:28px}}
