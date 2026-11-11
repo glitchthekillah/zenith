@@ -62,7 +62,7 @@ export const gsuf = (x) => (x?._g && settings.groups.length > 1 ? '@' + x._g : '
 // A stable id for this install (servers use it to tell devices apart)
 export const deviceId = (() => { let id = localStorage.getItem('zenith-device'); if (!id) { id = crypto.randomUUID().replace(/-/g, ''); try { localStorage.setItem('zenith-device', id); } catch {} } return id; })();
 const webSession = (() => { let id = sessionStorage.getItem('zenith-web') || localStorage.getItem('zenith-web'); if (!id) { id = crypto.randomUUID().replace(/-/g, ''); try { localStorage.setItem('zenith-web', id); } catch {} } return id; })();
-export const VERSION = '0.2.1';
+export const VERSION = '0.2.2';
 
 // ── Requests to the user's servers ────────────────────────────────────
 // The desktop app makes them itself; the web version goes through its small server.
@@ -108,13 +108,31 @@ export function defer(work, fallback = '') {
   deferred.set(key, work);
   return `<div data-defer="${key}">${fallback}</div>`;
 }
+// Keep the greeting's existing nodes so loading updates do not replay its entry animation.
+function patchChildren(root, html) {
+  const template = document.createElement('template'); template.innerHTML = html;
+  const sync = (parent, next) => {
+    const nodes = [...next.childNodes];
+    for (let i = 0; i < nodes.length; i++) {
+      const fresh = nodes[i], old = parent.childNodes[i];
+      if (!old) { parent.appendChild(fresh.cloneNode(true)); continue; }
+      if (old.nodeType !== fresh.nodeType || old.nodeName !== fresh.nodeName) { old.replaceWith(fresh.cloneNode(true)); continue; }
+      if (fresh.nodeType !== 1) { if (old.nodeValue !== fresh.nodeValue) old.nodeValue = fresh.nodeValue; continue; }
+      for (const a of [...old.attributes]) if (!fresh.hasAttribute(a.name)) old.removeAttribute(a.name);
+      for (const a of [...fresh.attributes]) if (old.getAttribute(a.name) !== a.value) old.setAttribute(a.name, a.value);
+      sync(old, fresh);
+    }
+    while (parent.childNodes.length > nodes.length) parent.lastChild.remove();
+  };
+  sync(root, template.content);
+}
 function mountDeferred(root, id) {
   for (const el of root.querySelectorAll('[data-defer]')) {
     const work = deferred.get(el.dataset.defer);
     if (!work) continue;
     deferred.delete(el.dataset.defer);
     const alive = () => id === renderId && el.isConnected;
-    const publish = (html, part) => {
+    const publish = (html, part, stable = false) => {
       if (!alive() || typeof html !== 'string') return;
       let target = el;
       if (part !== undefined) {
@@ -127,9 +145,11 @@ function mountDeferred(root, id) {
           el.insertBefore(target, [...el.children].find((x) => Number(x.dataset.part) > Number(part)) || null);
         }
       }
-      target.innerHTML = html;
+      if (target.zenithHTML === html) return;
+      target.zenithHTML = html;
+      if (stable) patchChildren(target, html); else target.innerHTML = html;
       mountDeferred(target, id);
-      emit('rendered');
+      emit('patched', { root: target });
     };
     Promise.resolve().then(() => alive() ? work(publish, alive) : undefined)
       .then(publish).catch((e) => { if (alive()) el.innerHTML = errorBox(e, false); });

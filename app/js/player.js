@@ -38,7 +38,7 @@ export async function play(item, { start, queue = [] } = {}) {
   S.audio = pickAudio(tr.audio, tr.defaultAudio);
   // Picked on the info page just before pressing play
   const pre = (await import('./watch.js')).prePick;
-  if (pre && (pre.for === full.Id || pre.for === full.SeriesId)) {
+  if (pre && pre.group === gid && (pre.for === full.Id || pre.for === full.SeriesId)) {
     if (pre.quality != null) S.quality = pre.quality;
     if (pre.audio != null && pre.audio !== '') {
       const byIndex = tr.audio.find((a) => String(a.index) === String(pre.audio));
@@ -47,7 +47,7 @@ export async function play(item, { start, queue = [] } = {}) {
     }
   }
   S.sub = pickSub(tr.subs, tr.audio.find((a) => a.index === S.audio));
-  if (pre && (pre.for === full.Id || pre.for === full.SeriesId) && pre.sub && pre.sub !== 'auto') {
+  if (pre && pre.group === gid && (pre.for === full.Id || pre.for === full.SeriesId) && pre.sub && pre.sub !== 'auto') {
     if (pre.sub === 'off') S.sub = null;
     else if (pre.sub.startsWith('lang:')) { const l = pre.sub.slice(5); const m = tr.subs.filter((x) => x.lang === l && !x.forced); S.sub = (m.find((x) => x.textBased) || m[0])?.index ?? S.sub; }
     else if (tr.subs.some((x) => String(x.index) === pre.sub)) S.sub = Number(pre.sub);

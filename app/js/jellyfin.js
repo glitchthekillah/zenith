@@ -85,7 +85,7 @@ export function items({ parentId = '', types = '', sort = 'SortName', order = 'A
 }
 export const byPerson = (personId) => api(`${U()}/Items?PersonIds=${personId}&Recursive=true&IncludeItemTypes=Movie,Series&SortBy=PremiereDate&SortOrder=Descending&Fields=${FIELDS}`);
 export const genres = (parentId) => api(`/Genres?UserId=${S().userId}&ParentId=${parentId}&SortBy=SortName`).then((r) => r.Items || []);
-export const search = (term) => items({ search: term, types: 'Movie,Series,Episode,BoxSet,MusicAlbum,Audio,Person', limit: 40, sort: 'SortName' });
+export const search = (term, types = 'Movie,Series,Episode,BoxSet,Person') => items({ search: term, types, limit: 40, sort: 'SortName' });
 export const setWatched = (id, on) => api(`${U()}/PlayedItems/${id}`, { method: on ? 'POST' : 'DELETE' });
 export const setFavorite = (id, on) => api(`${U()}/FavoriteItems/${id}`, { method: on ? 'POST' : 'DELETE' });
 export const intro = (id) => api(`/Episode/${id}/IntroTimestamps`).catch(() => null); // Intro Skipper plugin, if installed

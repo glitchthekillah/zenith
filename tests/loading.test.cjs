@@ -14,6 +14,7 @@ function watch(overrides={}) {
     kv:{},rq:{provider:()=>false},player:{isOpen:()=>false},...overrides};
   vm.createContext(c);vm.runInContext(source('watch').replace(/^import .*;\r?\n/gm,'').replace(/^export /gm,''),c);
   c.prePlay=async()=>'';
+  vm.runInContext('globalThis.testCache={remember,known};',c);
   return {c,routes,jobs};
 }
 test('movie page exposes Play without waiting for recommendations or other servers',async()=>{
@@ -66,4 +67,26 @@ test('deferred sections start after mount and ignore results after navigation',a
   await c.render();await flush();assert.equal(started,true);
   const old=[...slots.values()][0];c.routes.a=()=>'<p>Next page</p>';await c.render();finish('old response');await flush();
   assert.equal(old.innerHTML,'','a stale response changed the old page');
+});
+
+
+test('item caches keep colliding IDs on different servers separate',()=>{
+ const w=watch();let active={id:'a'};w.c.groups.active=()=>active;
+ w.c.testCache.remember([{Id:'same',_g:'a',Name:'Right movie'}]);
+ w.c.testCache.remember([{Id:'same',_g:'b',Name:'Different movie'}]);
+ assert.equal(w.c.testCache.known('same').Name,'Right movie');
+});
+test('server-copy lookup rejects unrelated provider IDs and chooses the verified copy',async()=>{
+ const a={id:'a'},b={id:'b'},w=watch();w.c.groups.with=()=>[a,b];w.c.groups.active=()=>a;w.c.groups.byId=id=>id==='a'?a:b;w.c.groups.nameOf=g=>g.id;w.c.groups.tag=(g,list)=>{list.forEach(x=>x._g=g.id);return list;};
+ const own={Id:'own',Type:'Movie',ProviderIds:{Tmdb:'42'},UserData:{}},bad={Id:'wrong',Type:'Movie',ProviderIds:{Tmdb:'99'}},good={Id:'right',Type:'Movie',ProviderIds:{Tmdb:'42'}};
+ w.c.jf.items=async()=>({Items:[bad,good]});w.c.jf.item=async id=>id==='right'?good:bad;
+ const html=await w.c.copiesBlock(own,a);
+ assert.match(html,/#\/item\/right@b/);assert.doesNotMatch(html,/#\/item\/wrong@b/);
+});
+test('search paints the first responding server without waiting for others',async()=>{
+ const w=watch();const fast={id:'fast'},slow={id:'slow'};let active=fast,out='';
+ w.c.groups.with=k=>k==='jellyfin'?[fast,slow]:[];w.c.groups.run=(g,f)=>{const prev=active;active=g;try{return f();}finally{active=prev;}};
+ w.c.jf.search=()=>active===slow?never():Promise.resolve({Items:[{Id:'a',Name:'Fast search movie',Type:'Movie'}]});w.c.card=it=>it.Name;
+ let html;Promise.resolve(w.routes.search('movie')).then(h=>html=h);await flush();assert.ok(html,'search waits for the slow server');
+ await Promise.all(w.jobs.map(job=>{job(h=>out+=h,()=>true);return flush();}));assert.match(out,/Fast search movie/);
 });
