@@ -76,6 +76,31 @@ try:
     async_js('nativeTest.abort.abort();await nativeTest.controller.destroy();return true;')
     assert js('return !document.documentElement.classList.contains("tauri-native-video")')
     print('PASS fullscreen, resize, controls and native surface cleanup',flush=True)
+    async_js('''
+      const core=await import(new URL('js/core.js',document.baseURI));
+      const player=await import(new URL('js/player.js',document.baseURI));
+      core.settings.groups=[{id:'fixture',name:'Fixture',servers:{jellyfin:{url:'http://127.0.0.1:18488',token:'synthetic',userId:'fixture'}}}];
+      core.groups.use('fixture');core.settings.app.discord=false;
+      core.settings.playback.rate=1;core.settings.playback.subtitles='off';
+      const source={Id:'fixture',Container:'mkv',SupportsDirectPlay:true,DefaultAudioStreamIndex:1,DefaultSubtitleStreamIndex:-1,MediaStreams:[{Index:0,Type:'Video',Codec:'h264',Width:640,Height:360},{Index:1,Type:'Audio',Codec:'ac3',Language:'eng',IsDefault:true}]};
+      window.zenithDesktop.http=async(url)=>({ok:true,status:200,headers:{'content-type':'application/json'},body:JSON.stringify(url.includes('PlaybackInfo')?{MediaSources:[source],PlaySessionId:'fixture'}:{Items:[],Valid:false})});
+      // Restore the real page structure removed by the surface-only test.
+      document.body.innerHTML='<div id="app"><main id="view">Fixture library</main></div><div id="player" hidden></div><div id="toasts"></div>';
+      window.playerUiTest={player,source};
+      await player.play({Id:'fixture',Name:'Moving video fixture',Type:'Movie',RunTimeTicks:600000000,MediaSources:[source],UserData:{}},{start:0});
+      return true;
+    ''')
+    until('document.querySelector("#player video").currentTime>2')
+    for cycle in range(3):
+        js('document.querySelector("#player").dispatchEvent(new MouseEvent("mousemove",{bubbles:true}));document.querySelector("[data-p=settings]").click()')
+        assert js('return !!document.querySelector(".pl-menu")')
+        time.sleep(.5)
+        js('document.querySelector("[data-p=settings]").click()')
+        async_js('await playerUiTest.player.close(true);await playerUiTest.player.play({Id:"fixture",Name:"Replacement fixture",Type:"Movie",RunTimeTicks:600000000,MediaSources:[playerUiTest.source],UserData:{}},{start:0});return true;')
+        until('document.querySelector("#player video").currentTime>1')
+    assert not js('return !!document.querySelector(".pl-error")')
+    async_js('await playerUiTest.player.close(true);return true;')
+    print('PASS actual player UI, menus and repeated title changes',flush=True)
 finally:
     if session:
         try:request('DELETE','/session/'+session)

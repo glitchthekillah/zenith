@@ -4,6 +4,7 @@ function createServer(directory){
  const root=path.resolve(directory);
  return http.createServer((req,res)=>{
   let name;try{name=decodeURIComponent(new URL(req.url,'http://localhost').pathname)}catch{res.writeHead(400).end();return}
+  if(name==='/Videos/fixture/stream')name='/delayed.mkv';
   const file=path.resolve(root,'.'+name);
   if(!file.startsWith(root+path.sep)||!['GET','HEAD'].includes(req.method)){res.writeHead(403).end();return}
   let size;try{size=fs.statSync(file).size}catch{res.writeHead(404).end();return}
