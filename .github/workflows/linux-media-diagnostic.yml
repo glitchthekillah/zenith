@@ -20,7 +20,7 @@ jobs:
       - name: Install diagnostic tools in disposable runner
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends build-essential libwebkit2gtk-4.1-dev libgstreamer1.0-dev python3-gi gir1.2-webkit2-4.1 xvfb xauth pulseaudio pulseaudio-utils dbus-x11 ffmpeg gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-gl
+          sudo apt-get install -y -qq --no-install-recommends build-essential libwebkit2gtk-4.1-dev python3-gi gir1.2-webkit2-4.1 xvfb xauth pulseaudio pulseaudio-utils dbus-x11 ffmpeg gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-gl
       - name: Download the published AppImage and prepare original test files
         run: |
           curl -fL -o published.AppImage https://github.com/glitchthekillah/zenith/releases/download/v0.2.5/Zenith_0.2.5_amd64.AppImage
@@ -31,7 +31,7 @@ jobs:
             if [ "$audio" = ac3 ]; then ext=mkv; else ext=mp4; fi
             ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=1920x1080:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 4 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a "$audio" -ac 6 /tmp/zenith-media-fixtures/video.$ext
           done
-          gcc -Wno-deprecated-declarations tests/linux-webkit-probe.c -o /tmp/zenith-webkit-probe $(pkg-config --cflags --libs webkit2gtk-4.1 gstreamer-1.0)
+          gcc -Wno-deprecated-declarations tests/linux-webkit-probe.c -o /tmp/zenith-webkit-probe $(pkg-config --cflags --libs webkit2gtk-4.1) -ldl
           for ext in mp4 mkv; do
             printf '<!doctype html><video autoplay controls playsinline src="video.%s"></video><script>document.querySelector("video").play().catch(e=>window.playError=e.name+": "+e.message)</script>' "$ext" > /tmp/zenith-media-fixtures/$ext.html
           done

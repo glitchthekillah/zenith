@@ -1,5 +1,5 @@
 #include <webkit2/webkit2.h>
-#include <gst/gst.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
 static int outcome = 1, busy = 0, polls = 0;
@@ -26,12 +26,17 @@ static gboolean tick(gpointer view) {
   return TRUE;
 }
 int main(int argc, char **argv) {
-  gst_init(&argc, &argv);
+  void *gst = dlopen("libgstreamer-1.0.so.0", RTLD_NOW | RTLD_LOCAL);
+  void (*gst_init_runtime)(int *, char ***) = gst ? dlsym(gst, "gst_init") : NULL;
+  void *(*find_factory)(const char *) = gst ? dlsym(gst, "gst_element_factory_find") : NULL;
+  void (*unref_factory)(void *) = gst ? dlsym(gst, "gst_object_unref") : NULL;
+  if (!gst_init_runtime || !find_factory || !unref_factory) { fputs("FAIL cannot inspect packaged GStreamer runtime\n", stderr); return 2; }
+  gst_init_runtime(&argc, &argv);
   const char *required[] = {"avdec_h264", "avdec_ac3", "matroskademux", "qtdemux", "souphttpsrc", "pulsesink", "glupload", "glcolorconvert"};
   for (unsigned i = 0; i < sizeof(required) / sizeof(required[0]); i++) {
-    GstElementFactory *factory = gst_element_factory_find(required[i]);
+    void *factory = find_factory(required[i]);
     if (!factory) { fprintf(stderr, "FAIL missing packaged GStreamer element: %s\n", required[i]); return 2; }
-    gst_object_unref(factory);
+    unref_factory(factory);
   }
   gtk_init(&argc, &argv);
   WebKitWebsitePolicies *policies = webkit_website_policies_new_with_policies("autoplay", WEBKIT_AUTOPLAY_ALLOW, NULL);

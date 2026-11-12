@@ -26,7 +26,7 @@ for audio in aac ac3; do
 done
 node "$source_dir/tests/media-range-server.cjs" "$work/fixtures" >http.log 2>&1 &
 server_pid=$!
-gcc -Wno-deprecated-declarations "$source_dir/tests/linux-webkit-probe.c" -o probe $(pkg-config --cflags --libs webkit2gtk-4.1 gstreamer-1.0)
+gcc -Wno-deprecated-declarations "$source_dir/tests/linux-webkit-probe.c" -o probe $(pkg-config --cflags --libs webkit2gtk-4.1) -ldl
 cp probe "$APPDIR/usr/bin/zenith"
 export PULSE_SINK=zenith-test
 for ext in mp4 mkv; do
