@@ -165,7 +165,10 @@ pub fn run() {
             return;
         }
     }
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "linux")]
+    let builder = builder.plugin(tauri_plugin_video::init());
+    let app = builder
         .plugin(tauri_plugin_single_instance::init(|app, _, _| { let _ = window::action(app, "focus", None); }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())

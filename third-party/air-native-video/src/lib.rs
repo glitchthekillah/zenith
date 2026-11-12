@@ -1,0 +1,138 @@
+use tauri::{
+    plugin::{Builder as TauriBuilder, TauriPlugin},
+    Manager, Runtime,
+};
+
+pub use models::*;
+
+mod commands;
+#[cfg(desktop)]
+mod desktop;
+mod error;
+#[cfg(mobile)]
+mod mobile;
+mod models;
+
+pub use error::{Error, Result};
+
+/// Runtime state shared by the Rust commands on every supported platform.
+pub struct Video<R: Runtime> {
+    _app: tauri::AppHandle<R>,
+    #[cfg(desktop)]
+    desktop: desktop::DesktopVideo<R>,
+    #[cfg(mobile)]
+    mobile: mobile::MobileVideo<R>,
+}
+
+impl<R: Runtime> Video<R> {
+    fn new(
+        app: tauri::AppHandle<R>,
+        #[cfg(desktop)] desktop: desktop::DesktopVideo<R>,
+        #[cfg(mobile)] mobile: mobile::MobileVideo<R>,
+    ) -> Self {
+        Self {
+            _app: app,
+            #[cfg(desktop)]
+            desktop,
+            #[cfg(mobile)]
+            mobile,
+        }
+    }
+
+    #[cfg(desktop)]
+    pub(crate) fn desktop(&self) -> &desktop::DesktopVideo<R> {
+        &self.desktop
+    }
+
+    #[cfg(mobile)]
+    pub(crate) fn mobile(&self) -> &mobile::MobileVideo<R> {
+        &self.mobile
+    }
+}
+
+/// Extensions to Tauri managers for accessing the video plugin state from Rust.
+pub trait VideoExt<R: Runtime> {
+    fn video(&self) -> tauri::State<'_, Video<R>>;
+}
+
+impl<R: Runtime, T: Manager<R>> VideoExt<R> for T {
+    fn video(&self) -> tauri::State<'_, Video<R>> {
+        self.state::<Video<R>>()
+    }
+}
+
+/// Plugin builder.
+pub struct Builder;
+
+impl Default for Builder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Builder {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn build<R: Runtime>(self) -> TauriPlugin<R> {
+        #[cfg(target_os = "windows")]
+        enable_webview_texture_stream();
+        TauriBuilder::new("video")
+            .invoke_handler(tauri::generate_handler![
+                commands::native_diagnostics,
+                commands::native_open,
+                commands::native_prepare_texture_stream,
+                commands::native_control,
+                commands::native_layout,
+                commands::native_stats,
+                commands::native_close,
+            ])
+            .setup(move |app, api| {
+                #[cfg(mobile)]
+                let mobile = mobile::init(app, api)?;
+                #[cfg(desktop)]
+                let desktop = desktop::init(app, api)?;
+
+                let video = Video::new(
+                    app.clone(),
+                    #[cfg(desktop)]
+                    desktop,
+                    #[cfg(mobile)]
+                    mobile,
+                );
+                app.manage(video);
+                Ok(())
+            })
+            .build()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn enable_webview_texture_stream() {
+    const FEATURE: &str = "msWebView2TextureStream";
+    const PREFIX: &str = "--enable-features=";
+    let mut arguments = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+    if arguments.contains(FEATURE) {
+        return;
+    }
+    if let Some(start) = arguments.find(PREFIX) {
+        let value_start = start + PREFIX.len();
+        let value_end = arguments[value_start..]
+            .find(char::is_whitespace)
+            .map_or(arguments.len(), |offset| value_start + offset);
+        arguments.insert_str(value_end, &format!(",{FEATURE}"));
+    } else {
+        if !arguments.is_empty() {
+            arguments.push(' ');
+        }
+        arguments.push_str(PREFIX);
+        arguments.push_str(FEATURE);
+    }
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", arguments);
+}
+
+/// Initializes the plugin with production defaults.
+pub fn init<R: Runtime>() -> TauriPlugin<R> {
+    Builder::new().build()
+}

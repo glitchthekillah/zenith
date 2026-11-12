@@ -24,7 +24,7 @@ def check_media(directory, filename, port, profile_source):
     page_name = 'check-' + filename + '.html'
     page = pathlib.Path(directory) / page_name
     page.write_text('''<!doctype html><video id="v" muted autoplay playsinline></video><script>'''
-                    + profile_source + '\nwindow.profile=deviceProfile();'
+                    + 'const desktop=false;\n' + profile_source + '\nwindow.profile=deviceProfile();'
                     + 'const v=document.getElementById("v");v.src=' + json.dumps(f'http://127.0.0.1:{port}/{filename}')
                     + ';v.play().catch(e=>window.playError=e.message);</script>', encoding='utf-8')
     window = Gtk.Window()

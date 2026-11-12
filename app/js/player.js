@@ -4,6 +4,7 @@ import { $, esc, icon, fmtTime, settings, save, desktop, toast, emit, http, grou
 import * as jf from './jellyfin.js';
 import {attachNativeAudio, audioMuted, setAudioMuted} from './native-audio.js';
 import {playbackFailure} from './playback-errors.js';
+import {openNativeVideo, nativeTrackId, waitNativeVideo} from './native-video.js';
 import { pickAudio, pickSub, applySubStyle, cueHtml } from './tracks.js';
 
 // Electron can switch audio tracks inside the original file (no server work needed)
@@ -151,6 +152,12 @@ async function load(at = 0) {
   const session = S;
   if (!session) return;
   const epoch = session.loadEpoch = (session.loadEpoch || 0) + 1;
+  session.nativeAbort?.abort();
+  const previousNative = session.native;
+  session.native = null;
+  if (previousNative) await previousNative.destroy();
+  if (S !== session || session.loadEpoch !== epoch) return;
+  const nativeAbort = session.nativeAbort = desktop?.nativeVideo ? new AbortController() : null;
   groups.use(S.g);
   S.audioOut?.stop();
   const v = S.v;
@@ -159,7 +166,7 @@ async function load(at = 0) {
   if (S.pb?.hls) jf.stopTranscode(S.pb);
   let pb;
   try {
-    pb = await jf.playback(S.item.Id, { audioIndex: S.audio, subIndex: S.sub ?? undefined, burnSub: S.sub != null && !S.subTextOk, clientAudio: canSwitchAudio, start: at, maxBitrate: S.quality, forceTranscode: S.forceTranscode });
+    pb = await jf.playback(S.item.Id, { audioIndex: S.audio, subIndex: S.sub ?? undefined, burnSub: !desktop?.nativeVideo && S.sub != null && !S.subTextOk, clientAudio: canSwitchAudio || !!desktop?.nativeVideo, start: at, maxBitrate: S.quality, forceTranscode: S.forceTranscode });
   } catch (e) { if (S === session && session.loadEpoch === epoch) return fail(e); return; }
   if (S !== session || session.loadEpoch !== epoch) return;
   S.pb = pb;
@@ -170,12 +177,26 @@ async function load(at = 0) {
     S.sub = pickSub(pb.subtitles, pb.audio.find((x) => x.index === a));
     S.subTextOk = S.sub == null || !!pb.subtitles.find((x) => x.index === S.sub)?.textBased;
     const was = S.audio; S.audio = a;
-    if ((a !== (was ?? pb.defaultAudio) && (pb.hls || !canSwitchAudio)) || !S.subTextOk) return load(at);
+    if ((a !== (was ?? pb.defaultAudio) && (pb.hls || (!canSwitchAudio && !desktop?.nativeVideo))) || (!S.subTextOk && !desktop?.nativeVideo)) return load(at);
   }
   // A converted stream starts at the requested time; a direct file starts at 0
   S.offset = pb.hls ? at : 0;
   if (S.audio == null) S.audio = pb.defaultAudio ?? pb.audio[0]?.index ?? null;
-  if (pb.hls) {
+  if (desktop?.nativeVideo) {
+    try {
+      const controller = await openNativeVideo(v, {url:pb.url, signal:nativeAbort.signal,
+        controls:[...root().children].filter(e=>e!==v)});
+      if (S !== session || session.loadEpoch !== epoch) { await controller.destroy(); return; }
+      session.native = controller;
+      controller.on('error', e => { if (S === session && session.loadEpoch === epoch) fail(e.detail); });
+      spin(true);
+      await waitNativeVideo(v, nativeAbort.signal);
+      if (S !== session || session.loadEpoch !== epoch) return;
+      if (at) await controller.seek(at);
+      if (settings.playback.rate !== 1) await controller.setPlaybackRate(settings.playback.rate);
+      await pickNativeAudio();
+    } catch (e) { if (S === session && session.loadEpoch === epoch && !nativeAbort.signal.aborted) return fail(e); return; }
+  } else if (pb.hls) {
     if (window.Hls?.isSupported()) {
       const hls = new window.Hls({ maxBufferLength: 60, backBufferLength: 60, startPosition: 0 });
       S.hls = hls;
@@ -209,6 +230,11 @@ function pickFileAudio() {
   if (k < 0 || k >= v.audioTracks.length) return;
   for (let i = 0; i < v.audioTracks.length; i++) v.audioTracks[i].enabled = i === k;
 }
+async function pickNativeAudio() {
+  const session = S; if (!session?.native || !session.pb) return;
+  const id = nativeTrackId(session.native, 'audio', session.audio, session.pb.audio);
+  if (id) await session.native.selectTrack('audio', id);
+}
 // Subtitles: text tracks load as <track> and are drawn by us (so they can be styled);
 // image subtitles need the server to burn them in
 function applySubtitles() {
@@ -223,6 +249,11 @@ function applySubtitles() {
     S.sub = pref === 'off' ? null : pref === 'always' ? (byLang || pb.subtitles[0])?.index ?? null : pb.defaultSub >= 0 ? pb.defaultSub : pb.subtitles.find((s) => s.forced)?.index ?? null;
   }
   const s = pb.subtitles.find((x) => x.index === S.sub);
+  if (S.native) {
+    const id = nativeTrackId(S.native, 'subtitle', S.sub, pb.subtitles);
+    S.native.selectTrack('subtitle', id).catch(() => toast("Couldn't select those subtitles.", 'bad'));
+    if (!s?.external) return;
+  }
   if (!s) return;
   if (!s.textBased) { if (!S.subTextOk) { S.subTextOk = false; } return; }
   const tr = document.createElement('track');
@@ -257,7 +288,7 @@ function tick() {
   const skip = $('.pl-skip', root());
   if (seg && !skip) {
     if (settings.playback.skipIntro && seg.type === 'Intro' && !S.introShown) { S.introShown = true; seekTo(seg.end); flash('Skipped the intro'); }
-    else root().insertAdjacentHTML('beforeend', `<button class="btn gold pl-skip" data-p="skipseg">Skip ${seg.type === 'Outro' ? 'credits' : seg.type === 'Recap' ? 'recap' : 'intro'}</button>`);
+    else root().insertAdjacentHTML('beforeend', `<button data-air-video-controls class="btn gold pl-skip" data-p="skipseg">Skip ${seg.type === 'Outro' ? 'credits' : seg.type === 'Recap' ? 'recap' : 'intro'}</button>`);
   } else if (!seg && skip) skip.remove();
   // Up next, 30 seconds before the end (or at the credits)
   const next = S.queue[0];
@@ -361,6 +392,7 @@ async function fullscreen(on) {
   if (document.fullscreenElement) document.exitFullscreen(); else root().requestFullscreen?.();
 }
 async function pip() {
+  if (S?.native) return mini();
   const v = S.v;
   try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await v.requestPictureInPicture(); }
   catch { toast("Picture in picture isn't available here."); }
@@ -384,7 +416,7 @@ function ended() {
   else close();
 }
 function showNext(next) {
-  root().insertAdjacentHTML('beforeend', `<div class="pl-next"><img src="${esc(jf.img(next, 'Thumb', 320))}" alt=""><div><small>Up next</small><b>${esc(next.Name)}</b><small>S${next.ParentIndexNumber} E${next.IndexNumber}</small><div class="acts" style="margin-top:8px"><button class="btn gold small" data-p="next">Play now</button><button class="btn small" data-p="hidenext">Hide</button></div></div></div>`);
+  root().insertAdjacentHTML('beforeend', `<div data-air-video-controls class="pl-next"><img src="${esc(jf.img(next, 'Thumb', 320))}" alt=""><div><small>Up next</small><b>${esc(next.Name)}</b><small>S${next.ParentIndexNumber} E${next.IndexNumber}</small><div class="acts" style="margin-top:8px"><button class="btn gold small" data-p="next">Play now</button><button class="btn small" data-p="hidenext">Hide</button></div></div></div>`);
 }
 async function nextEpisode() {
   const n = S?.queue[0]; if (!n) return;
@@ -412,7 +444,7 @@ function menu(kind) {
   let html = '';
   if (kind === 'subs') {
     html = `<h4>Subtitles</h4><button data-sub="off" class="${S.sub == null ? 'on' : ''}">Off</button>` +
-      pb.subtitles.map((s) => `<button data-sub="${s.index}" ${s.textBased ? '' : 'disabled'} class="${S.sub === s.index ? 'on' : ''}">${esc(s.label)}${s.forced ? ' (forced)' : ''}${s.textBased ? '' : ' · unavailable in direct play'}</button>`).join('') +
+      pb.subtitles.map((s) => `<button data-sub="${s.index}" ${s.textBased || (S.native && !s.external) ? '' : 'disabled'} class="${S.sub === s.index ? 'on' : ''}">${esc(s.label)}${s.forced ? ' (forced)' : ''}${s.textBased || (S.native && !s.external) ? '' : ' · unavailable in direct play'}</button>`).join('') +
       `<h4>Size</h4><div class="row2"><input type="range" min="60" max="200" step="10" value="${settings.playback.subtitleSize}" data-subsize><span>${settings.playback.subtitleSize}%</span></div>`;
   } else if (kind === 'settings') {
     html = `<h4>Audio</h4>${pb.audio.map((a) => `<button data-audio="${a.index}" class="${S.audio === a.index ? 'on' : ''}">${esc(a.label)}</button>`).join('') || '<button disabled>Only one track</button>'}
@@ -423,7 +455,7 @@ function menu(kind) {
     const list = S.list || [];
     html = `<h4>${esc(S.item.SeasonName || 'Episodes')}</h4>` + list.map((e) => `<button data-ep="${e.Id}" class="${e.Id === S.item.Id ? 'on' : ''}">S${e.ParentIndexNumber}E${e.IndexNumber} · ${esc(e.Name)}</button>`).join('');
   }
-  el.insertAdjacentHTML('beforeend', `<div class="pl-menu">${html}</div>`);
+  el.insertAdjacentHTML('beforeend', `<div data-air-video-controls class="pl-menu">${html}</div>`);
   const m = $('.pl-menu', el);
   m.querySelector('.on')?.scrollIntoView({ block: 'center' });
   const size = $('[data-subsize]', m);
@@ -451,18 +483,20 @@ async function onClick(e) {
   if (p === 'pip') return pip();
   if (p === 'mini') return mini();
   if (p === 'fill') { root().classList.toggle('fill'); b.classList.toggle('on'); return; }
-  if (p === 'info') { const old = $('.pl-info', root()); if (old) return old.remove(); const pb = S.pb, vs = pb.video || {}; root().insertAdjacentHTML('beforeend', `<div class="pl-info">${esc(pb.method)}<br>${esc(pb.source.Container || '')} · ${esc(vs.Codec || '')} ${vs.Width || ''}x${vs.Height || ''}<br>${pb.source.Bitrate ? Math.round(pb.source.Bitrate / 1e5) / 10 + ' Mbps' : ''}<br>${esc(pb.audio.find((a) => a.index === S.audio)?.label || '')}</div>`); return; }
+  if (p === 'info') { const old = $('.pl-info', root()); if (old) return old.remove(); const pb = S.pb, vs = pb.video || {}; root().insertAdjacentHTML('beforeend', `<div data-air-video-controls class="pl-info">${esc(pb.method)}<br>${esc(pb.source.Container || '')} · ${esc(vs.Codec || '')} ${vs.Width || ''}x${vs.Height || ''}<br>${pb.source.Bitrate ? Math.round(pb.source.Bitrate / 1e5) / 10 + ' Mbps' : ''}<br>${esc(pb.audio.find((a) => a.index === S.audio)?.label || '')}</div>`); return; }
   if (['subs', 'settings', 'episodes'].includes(p)) return menu(p);
   if (b.dataset.sub != null) {
     const idx = b.dataset.sub === 'off' ? null : Number(b.dataset.sub);
     const s = S.pb.subtitles.find((x) => x.index === idx);
     S.sub = idx; S.menu = null; $('.pl-menu', root())?.remove();
+    if (S.native) { applySubtitles(); paintButtons(); return; }
     if (s && !s.textBased) { S.subTextOk = false; return load(pos()); } // picture subtitles: the server draws them in
     if (S.pb.hls && S.subTextOk === false) { S.subTextOk = true; return load(pos()); }
     applySubtitles(); paintButtons(); return;
   }
   if (b.dataset.audio != null) {
     S.audio = Number(b.dataset.audio); S.menu = null; $('.pl-menu', root())?.remove();
+    if (S.native) { await pickNativeAudio(); paintButtons(); return; }
     // Original file and the player can switch tracks itself: instant, no server work
     if (!S.pb.hls && canSwitchAudio && S.v.audioTracks?.length > 1) { pickFileAudio(); paintButtons(); return; }
     return load(pos());
@@ -483,7 +517,7 @@ async function fail(e) {
   const el = root();
   $('.pl-error', el)?.remove();
   const resume = $('.pl-resume', el); if (resume) resume.hidden = true;
-  el.insertAdjacentHTML('beforeend', `<div class="pl-error"><div><h3>Playback problem</h3><p>${esc(details.message)}</p><div class="acts" style="justify-content:center"><button class="btn gold" data-p="retry">Try again</button><button class="btn" data-p="close">Close</button></div></div></div>`);
+  el.insertAdjacentHTML('beforeend', `<div data-air-video-controls class="pl-error"><div><h3>Playback problem</h3><p>${esc(details.message)}</p><div class="acts" style="justify-content:center"><button class="btn gold" data-p="retry">Try again</button><button class="btn" data-p="close">Close</button></div></div></div>`);
   $('[data-p=retry]', el).onclick = () => { $('.pl-error', el).remove(); load(pos()); };
 
 }
@@ -492,6 +526,7 @@ export async function close(quiet) {
   if (!S) return;
   groups.use(S.g);
   const s = S; S = null;
+  s.nativeAbort?.abort();
   try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); } catch {}
   if (document.body.classList.contains('mini')) { await desktop?.win('mini', false); document.body.classList.remove('mini'); }
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -499,6 +534,7 @@ export async function close(quiet) {
   const p = s.offset + (s.v.currentTime || 0);
   if (s.pb) { jf.reportStop(s.item, s.pb, p); if (s.pb.hls) jf.stopTranscode(s.pb); }
   s.audioOut?.stop();
+  await s.native?.destroy();
   s.hls?.destroy();
   s.v.removeAttribute('src'); s.v.load();
   root().hidden = true; root().innerHTML = '';

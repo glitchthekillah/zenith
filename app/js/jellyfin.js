@@ -117,7 +117,8 @@ export const trickplayUrl = (id, width, index, sourceId) => `${S().url}/Videos/$
 // Advertise local decoding capabilities only. Server conversion is never permitted.
 function deviceProfile() {
   const v = document.createElement('video');
-  const can = (mime) => !!v.canPlayType(mime).replace('no', '');
+  const native = !!desktop?.nativeVideo;
+  const can = (mime) => native || !!v.canPlayType(mime).replace('no', '');
   const video = [['h264','video/mp4; codecs="avc1.42E01E"'],['hevc','video/mp4; codecs="hvc1.1.6.L93.B0"'],['vp9','video/webm; codecs="vp9"'],['av1','video/mp4; codecs="av01.0.05M.08"'],['vp8','video/webm; codecs="vp8"']].filter(([,mime])=>can(mime)).map(([codec])=>codec);
   const audio = [['aac','audio/mp4; codecs="mp4a.40.2"'],['mp3','audio/mpeg'],['opus','audio/ogg; codecs="opus"'],['flac','audio/flac'],['vorbis','audio/ogg; codecs="vorbis"'],['ac3','audio/mp4; codecs="ac-3"'],['eac3','audio/mp4; codecs="ec-3"']].filter(([,mime])=>can(mime)).map(([codec])=>codec);
   return {
@@ -128,7 +129,8 @@ function deviceProfile() {
       ...(can('video/webm') ? [{Container:'webm',Type:'Video',VideoCodec:video.filter(c=>['vp8','vp9','av1'].includes(c)).join(','),AudioCodec:audio.filter(c=>['vorbis','opus'].includes(c)).join(',')}] : []),
     ],
     TranscodingProfiles: [], ContainerProfiles: [], CodecProfiles: [],
-    SubtitleProfiles: ['vtt','srt','ass','ssa'].map(Format=>({Format,Method:'External'})),
+    SubtitleProfiles: [...['vtt','srt','ass','ssa'].map(Format=>({Format,Method:'External'})),
+      ...(native ? ['pgssub','dvdsub','dvbsub','srt','ass','ssa'].map(Format=>({Format,Method:'Embed'})) : [])],
   };
 }
 // Returns { url, hls, source, playSessionId, method, subtitles[], audio[] }

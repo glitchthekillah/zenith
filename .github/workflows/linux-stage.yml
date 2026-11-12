@@ -15,7 +15,7 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-22.04
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
       APPIMAGE_EXTRACT_AND_RUN: '1'
       NO_STRIP: '1'
@@ -40,10 +40,11 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libnotify-dev patchelf libfuse2 gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-tools ffmpeg python3-gi gir1.2-webkit2-4.1 xvfb pulseaudio pulseaudio-utils dbus-x11
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libnotify-dev patchelf libfuse2 gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-gtk3 libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev webkit2gtk-driver imagemagick gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-tools ffmpeg python3-gi gir1.2-webkit2-4.1 xvfb pulseaudio pulseaudio-utils dbus-x11
       - name: Install locked JavaScript dependencies and test
         run: |
           npm ci
+          node scripts/build-native-video.mjs
           node --test 'tests/*.test.cjs'
       - name: Verify original-file playback in WebKitGTK
         env:
@@ -57,6 +58,21 @@ jobs:
         run: npx tauri build --bundles appimage,deb --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - name: Verify shipped binary defaults and packaged audible playback
         run: bash tests/check-linux-package.sh
+      - name: Verify the shipped native player and controls
+        run: |
+          cargo install tauri-driver --version 2.0.6 --locked
+          bash tests/check-linux-native-app.sh
+      - name: Store native player diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-player-diagnostics
+          path: |
+            /tmp/native-app-driver.log
+            /tmp/native-app-http.log
+            /tmp/native-app-surface.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Verify and collect Linux packages
         run: |
           mkdir linux-release
@@ -64,13 +80,14 @@ jobs:
           cp src-tauri/target/release/bundle/deb/*.deb linux-release/
           dpkg-deb -f linux-release/*.deb Package Version Architecture
           dependencies="$(dpkg-deb -f linux-release/*.deb Depends)"
-          for package in gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly; do
+          for package in gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-gtk3 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly; do
             echo "$dependencies" | grep -F "$package"
           done
           env -u APPIMAGE_EXTRACT_AND_RUN src-tauri/target/release/bundle/appimage/*.AppImage --appimage-extract >/dev/null
           find squashfs-root -name 'libgstlibav.so' | grep .
           find squashfs-root -name 'libgstmatroska.so' | grep .
           find squashfs-root -name 'libgstopengl.so' | grep .
+          find squashfs-root -name 'libgstgtk.so' | grep .
 
           cd linux-release
           sha256sum *.AppImage *.deb > SHA256SUMS

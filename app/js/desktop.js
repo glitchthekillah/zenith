@@ -17,6 +17,7 @@
   T.event.listen('zenith', (e) => { const m = e.payload || {}; for (const fn of listeners) { try { fn(m.channel, m.data); } catch {} } });
 
   window.zenithDesktop = {
+    nativeVideo: /Linux/i.test(globalThis.navigator?.platform || '') && !/Android/i.test(globalThis.navigator?.userAgent || ''),
     http: (url, opts) => invoke('http', { url, opts: opts || {} }),
     forget: (origin) => invoke('http_forget', { origin: origin || null }),
     info: () => invoke('info'),
