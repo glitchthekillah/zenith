@@ -561,6 +561,8 @@ class NativeSurfaceVideoController extends EventTarget implements BackendVideoCo
     try {
       const previous = this.#snapshot
       const snapshot = await this.#readStats()
+      // A title switch may dispose this surface while the IPC response is pending.
+      if (this.#destroyed) return
       const visibleSnapshot = this.#acceptSnapshot(snapshot)
       this.#updateMedia(visibleSnapshot)
       this.#publishMetadata()
@@ -589,7 +591,7 @@ class NativeSurfaceVideoController extends EventTarget implements BackendVideoCo
         this.element.dispatchEvent(new Event('ended'))
       }
     } catch (error) {
-      this.#publishError(error)
+      if (!this.#destroyed) this.#publishError(error)
     } finally {
       this.#polling = false
     }

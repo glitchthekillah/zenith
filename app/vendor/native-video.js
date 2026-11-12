@@ -1505,6 +1505,7 @@ var NativeSurfaceVideoController = class extends EventTarget {
     try {
       const previous = this.#snapshot;
       const snapshot = await this.#readStats();
+      if (this.#destroyed) return;
       const visibleSnapshot = this.#acceptSnapshot(snapshot);
       this.#updateMedia(visibleSnapshot);
       this.#publishMetadata();
@@ -1532,7 +1533,7 @@ var NativeSurfaceVideoController = class extends EventTarget {
         this.element.dispatchEvent(new Event("ended"));
       }
     } catch (error) {
-      this.#publishError(error);
+      if (!this.#destroyed) this.#publishError(error);
     } finally {
       this.#polling = false;
     }
