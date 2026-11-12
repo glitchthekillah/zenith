@@ -46,7 +46,7 @@ jobs:
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=zenith-test
           export PULSE_SINK=zenith-test
-          for mode in auto metadata playbin3 playbin3-metadata; do
+          for mode in disabled playbin3-disabled; do
             unset WEBKIT_GST_USE_PLAYBIN3
             if [[ "$mode" = playbin3* ]]; then export WEBKIT_GST_USE_PLAYBIN3=1; fi
             echo "BEGIN $mode"
