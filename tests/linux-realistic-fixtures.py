@@ -19,4 +19,6 @@ assert any(s['codec_name'] == 'hdmv_pgs_subtitle' and s['disposition']['default'
 for label, source in [('pgs', 'pgs.mkv'), ('route', 'video.mkv'), ('pgs-route', 'pgs.mkv')]:
     uri = source if label == 'pgs' else '/Videos/fixture/stream?static=true&file=' + source
     (root / (label + '.html')).write_text('<!doctype html><video autoplay controls playsinline src="' + uri + '"></video><script>document.querySelector("video").play().catch(e=>window.playError=e.name+": "+e.message)</script>')
+for label, name in [('https-mp4', 'video.mp4'), ('https-mkv', 'video.mkv'), ('https-pgs', 'pgs.mkv')]:
+    (root / (label + '.html')).write_text('<!doctype html><video autoplay controls playsinline src="https://localhost:18489/' + name + '"></video><script>document.querySelector("video").play().catch(e=>window.playError=e.name+": "+e.message)</script>')
 print(json.dumps({'fixture': 'synthetic h264/ac3 plus public FFmpeg PGS sample', 'streams': [s['codec_name'] for s in streams]}), flush=True)
