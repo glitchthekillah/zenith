@@ -16,7 +16,11 @@ parec --device=zenith-test.monitor --format=s16le --rate=48000 --channels=2 >/tm
 recorder=$!
 trap 'kill "$server" "$recorder" 2>/dev/null || true' EXIT
 export PULSE_SINK=zenith-test LIBGL_ALWAYS_SOFTWARE=1
-dbus-run-session -- xvfb-run -a python3 "$source_dir/tests/native-video-webdriver.py" "$APPDIR/AppRun"
+if [ "${ZENITH_WAYLAND_TEST:-0}" = 1 ]; then
+  dbus-run-session -- python3 "$source_dir/tests/native-video-webdriver.py" "$APPDIR/AppRun"
+else
+  dbus-run-session -- xvfb-run -a python3 "$source_dir/tests/native-video-webdriver.py" "$APPDIR/AppRun"
+fi
 kill "$recorder"; wait "$recorder" || true
 python3 - <<'PY'
 import array

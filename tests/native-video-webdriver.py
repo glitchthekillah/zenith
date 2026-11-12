@@ -61,12 +61,13 @@ try:
     request('POST',base+'/window/rect',{'width':1000,'height':700})
     time.sleep(.5)
     assert not js('return nativeTest.errors.length'),js('return nativeTest.errors')
-    subprocess.run(['import','-window','root','/tmp/native-app-surface.png'],check=True)
-    rect=request('GET',base+'/window/rect')
-    point=f"p{{{int(rect['x'])+360},{int(rect['y'])+140}}}"
-    color=subprocess.check_output(['convert','/tmp/native-app-surface.png','-format',f'%[fx:{point}.b],%[fx:{point}.r],%[fx:{point}.g]','info:'],text=True)
-    blue,red,green=map(float,color.split(','));assert blue>.5 and red<.3 and green<.3,('native video is not visibly composited',color)
-    print('PASS native video is visible beneath HTML controls',flush=True)
+    if not os.environ.get('ZENITH_WAYLAND_TEST'):
+        subprocess.run(['import','-window','root','/tmp/native-app-surface.png'],check=True)
+        rect=request('GET',base+'/window/rect')
+        point=f"p{{{int(rect['x'])+360},{int(rect['y'])+140}}}"
+        color=subprocess.check_output(['convert','/tmp/native-app-surface.png','-format',f'%[fx:{point}.b],%[fx:{point}.r],%[fx:{point}.g]','info:'],text=True)
+        blue,red,green=map(float,color.split(','));assert blue>.5 and red<.3 and green<.3,('native video is not visibly composited',color)
+        print('PASS native video is visible beneath HTML controls',flush=True)
     async_js('nativeTest.endedEvents=0;nativeTest.v.addEventListener("ended",()=>nativeTest.endedEvents++);await nativeTest.controller.seek(58);return true;')
     until('nativeTest.v.ended && nativeTest.endedEvents===1',timeout=15)
     async_js('await nativeTest.controller.play();return true;')
