@@ -91,6 +91,17 @@ try:
       return true;
     ''')
     until('document.querySelector("#player video").currentTime>2')
+    if not os.environ.get('ZENITH_WAYLAND_TEST'):
+        window_rect=request('GET',base+'/window/rect')
+        video_rect=js('const r=document.querySelector("#player video").getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}')
+        crop=f"{int(video_rect['width']*.2)}x{int(video_rect['height']*.35)}+{int(window_rect['x']+video_rect['x']+video_rect['width']*.15)}+{int(window_rect['y']+video_rect['y']+video_rect['height']*.25)}"
+        for sample in range(6):
+            image=f'/tmp/native-app-player-frame-{sample}.png'
+            subprocess.run(['import','-window','root',image],check=True)
+            mean=float(subprocess.check_output(['convert',image,'-crop',crop,'+repage','-colorspace','Gray','-format','%[fx:mean]','info:'],text=True))
+            assert mean>.04,('Native picture disappeared behind the actual player UI',sample,mean)
+            time.sleep(.15)
+        print('PASS native moving picture remains visible behind the actual player UI',flush=True)
     def capture_ui(name):
         image='/tmp/native-app-'+name+'.png'
         encoded=request('GET',base+'/screenshot')
