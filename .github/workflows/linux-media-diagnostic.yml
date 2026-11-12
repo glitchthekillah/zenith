@@ -33,6 +33,8 @@ jobs:
           for ext in mp4 mkv; do
             printf '<!doctype html><video autoplay controls playsinline src="video.%s"></video><script>document.querySelector("video").play().catch(e=>window.playError=e.name+": "+e.message)</script>' "$ext" > /tmp/zenith-media-fixtures/$ext.html
           done
+          cp /tmp/zenith-media-fixtures/mkv.html /tmp/zenith-media-fixtures/mkv-software.html
+          sed 's/autoplay controls/autoplay muted controls/' /tmp/zenith-media-fixtures/mkv.html > /tmp/zenith-media-fixtures/mkv-muted.html
           python3 -m http.server 18488 --bind 127.0.0.1 --directory /tmp/zenith-media-fixtures >/tmp/zenith-test-http.log 2>&1 &
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=zenith-test
@@ -44,9 +46,13 @@ jobs:
           ZENITH_FIXTURES: /tmp/zenith-media-fixtures
           GST_DEBUG: '2'
         run: |
-          for ext in mp4 mkv; do
-            ZENITH_PROBE_URL="http://127.0.0.1:18488/$ext.html" dbus-run-session -- xvfb-run -a /tmp/zenith-webkit-probe
+          result=0
+          for ext in mp4 mkv mkv-muted mkv-software; do
+            echo "Testing $ext"
+            if [ "$ext" = mkv-software ]; then export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1; fi
+            ZENITH_PROBE_URL="http://127.0.0.1:18488/$ext.html" dbus-run-session -- xvfb-run -a /tmp/zenith-webkit-probe || result=1
           done
+          exit "$result"
       - name: Published AppImage audible WebKit playback
         id: bundled
         continue-on-error: true
@@ -60,9 +66,13 @@ jobs:
           cp /tmp/zenith-webkit-probe squashfs-root/usr/bin/zenith
           chmod +x squashfs-root/usr/bin/zenith
           export APPDIR="$PWD/squashfs-root"
-          for ext in mp4 mkv; do
-            ZENITH_PROBE_URL="http://127.0.0.1:18488/$ext.html" dbus-run-session -- xvfb-run -a "$APPDIR/AppRun"
+          result=0
+          for ext in mp4 mkv mkv-muted mkv-software; do
+            echo "Testing $ext"
+            if [ "$ext" = mkv-software ]; then export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1; fi
+            ZENITH_PROBE_URL="http://127.0.0.1:18488/$ext.html" dbus-run-session -- xvfb-run -a "$APPDIR/AppRun" || result=1
           done
+          exit "$result"
       - name: Require both runtime checks
         env:
           NATIVE: ${{ steps.native.outcome }}

@@ -10,6 +10,7 @@ static void result(GObject *object, GAsyncResult *async, gpointer unused) {
     if (g_str_has_prefix(s, "PASS ") || g_str_has_prefix(s, "FAIL ")) {
       puts(s); fflush(stdout); outcome = g_str_has_prefix(s, "PASS ") ? 0 : 1; gtk_main_quit();
     }
+    if (polls % 25 == 0) { puts(s); fflush(stdout); }
     g_free(s); webkit_javascript_result_unref(r);
   }
   if (error) { fprintf(stderr, "%s\n", error->message); g_error_free(error); }
@@ -19,7 +20,7 @@ static gboolean tick(gpointer view) {
   if (++polls > 150) { fputs("FAIL playback timeout\n", stderr); gtk_main_quit(); return FALSE; }
   if (!busy) {
     busy = 1;
-    webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(view), "(()=>{const v=document.querySelector('video');if(!v)return 'WAIT';const s={width:v.videoWidth,time:v.currentTime,error:v.error?.code,message:v.error?.message,playError:window.playError,audio:v.webkitAudioDecodedByteCount};return (v.error||window.playError?'FAIL ':v.videoWidth&&v.currentTime>2?'PASS ':'WAIT ')+JSON.stringify(s)})()", NULL, result, NULL);
+    webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(view), "(()=>{const v=document.querySelector('video');if(!v)return 'WAIT';const s={width:v.videoWidth,time:v.currentTime,ready:v.readyState,network:v.networkState,paused:v.paused,error:v.error?.code,message:v.error?.message,playError:window.playError,audio:v.webkitAudioDecodedByteCount};return (v.error||window.playError?'FAIL ':v.videoWidth&&v.currentTime>2?'PASS ':'WAIT ')+JSON.stringify(s)})()", NULL, result, NULL);
   }
   return TRUE;
 }
