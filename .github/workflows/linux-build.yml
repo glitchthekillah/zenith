@@ -77,6 +77,8 @@ jobs:
             /tmp/native-app-driver.log
             /tmp/native-app-http.log
             /tmp/native-app-surface.png
+            /tmp/native-app-controls.png
+            /tmp/native-app-menu.png
           if-no-files-found: ignore
           retention-days: 7
       - name: Verify and collect Linux packages

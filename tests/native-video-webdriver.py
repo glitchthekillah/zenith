@@ -91,6 +91,24 @@ try:
       return true;
     ''')
     until('document.querySelector("#player video").currentTime>2')
+    def capture_ui(name):
+        image='/tmp/native-app-'+name+'.png'
+        encoded=request('GET',base+'/screenshot')
+        pathlib.Path(image).write_bytes(base64.b64decode(encoded))
+        return image
+    js('document.querySelector("#player video").pause();document.querySelector("#player").dispatchEvent(new MouseEvent("mousemove",{bubbles:true}))')
+    time.sleep(.5)
+    closed=capture_ui('controls')
+    js('document.querySelector("[data-p=settings]").click()')
+    time.sleep(.5)
+    opened=capture_ui('menu')
+    rect=js('const r=document.querySelector(".pl-menu").getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.floor(r.width),height:Math.floor(r.height)}')
+    assert rect['width']>100 and rect['height']>40,rect
+    crop=f"{rect['width']}x{rect['height']}+{rect['x']}+{rect['y']}"
+    difference=float(subprocess.check_output(['convert',closed,opened,'-compose','difference','-composite','-crop',crop,'+repage','-colorspace','Gray','-format','%[fx:mean]','info:'],text=True))
+    assert difference>.003,('Menu exists in DOM but its pixels were not presented',difference)
+    print('PASS actual player menu visibly changes the rendered pixels',difference,flush=True)
+    js('document.querySelector("[data-p=settings]").click();document.querySelector("#player video").play()')
     for cycle in range(3):
         js('document.querySelector("#player").dispatchEvent(new MouseEvent("mousemove",{bubbles:true}));document.querySelector("[data-p=settings]").click()')
         assert js('return !!document.querySelector(".pl-menu")')

@@ -63,4 +63,6 @@ jobs:
             /tmp/native-app-http.log
             /tmp/native-app-weston.log
             /tmp/native-app-surface.png
+            /tmp/native-app-controls.png
+            /tmp/native-app-menu.png
           retention-days: 7
