@@ -1,0 +1,62 @@
+name: Linux subtitle preroll diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  playback:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install disposable diagnostic dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-dev build-essential ffmpeg gstreamer1.0-gl xvfb xauth pulseaudio pulseaudio-utils dbus-x11
+      - name: Fetch the existing unpublished candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 43291198552 --repo glitchthekillah/zenith --name zenith-linux-x64 --dir candidate
+          cd candidate
+          sha256sum --check SHA256SUMS
+          chmod +x *.AppImage
+          ./*.AppImage --appimage-extract >/dev/null
+      - name: Generate public synthetic delayed-subtitle fixture
+        run: |
+          mkdir /tmp/zenith-media-fixtures
+          ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=blue:size=640x360:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 60 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a ac3 -ac 6 /tmp/zenith-media-fixtures/video.mkv
+          python3 tests/linux-realistic-fixtures.py
+          python3 tests/linux-delayed-subtitles.py
+          gcc -Wno-deprecated-declarations tests/linux-webkit-probe.c -o candidate/squashfs-root/usr/bin/zenith $(pkg-config --cflags --libs webkit2gtk-4.1) -ldl
+      - name: Compare preroll paths
+        env:
+          APPDIR: ${{ github.workspace }}/candidate/squashfs-root
+          WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES: '33554432'
+          GST_DEBUG: '2'
+        run: |
+          node tests/media-range-server.cjs /tmp/zenith-media-fixtures >/tmp/preroll-http.log 2>&1 &
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=zenith-test
+          export PULSE_SINK=zenith-test
+          for mode in auto metadata playbin3 playbin3-metadata; do
+            unset WEBKIT_GST_USE_PLAYBIN3
+            if [[ "$mode" = playbin3* ]]; then export WEBKIT_GST_USE_PLAYBIN3=1; fi
+            echo "BEGIN $mode"
+            ZENITH_PROBE_URL="http://127.0.0.1:18488/delayed-$mode.html" dbus-run-session -- xvfb-run -a "$APPDIR/AppRun" >"/tmp/preroll-$mode.log" 2>&1 || true
+            grep -E 'PASS |FAIL |WAIT ' "/tmp/preroll-$mode.log" || true
+            echo "END $mode"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: preroll-${{ matrix.os }}
+          path: /tmp/preroll-*.log
+          retention-days: 7
