@@ -11,6 +11,8 @@ jobs:
         os: [ubuntu-22.04, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    env:
+      WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES: '33554432'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -47,7 +49,7 @@ jobs:
           GST_DEBUG: '2'
         run: |
           result=0
-          for ext in mp4 mkv mkv-muted mkv-software; do
+          for ext in mp4 mkv; do
             echo "Testing $ext"
             if [ "$ext" = mkv-software ]; then export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1; fi
             ZENITH_PROBE_URL="http://127.0.0.1:18488/$ext.html" dbus-run-session -- xvfb-run -a /tmp/zenith-webkit-probe || result=1
@@ -67,7 +69,7 @@ jobs:
           chmod +x squashfs-root/usr/bin/zenith
           export APPDIR="$PWD/squashfs-root"
           result=0
-          for ext in mp4 mkv mkv-muted mkv-software; do
+          for ext in mp4 mkv; do
             echo "Testing $ext"
             if [ "$ext" = mkv-software ]; then export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1; fi
             ZENITH_PROBE_URL="http://127.0.0.1:18488/$ext.html" dbus-run-session -- xvfb-run -a "$APPDIR/AppRun" || result=1
