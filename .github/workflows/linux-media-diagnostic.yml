@@ -1,8 +1,9 @@
-name: Linux packaged media diagnostics
+name: Linux subtitle preroll diagnostic
 on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   playback:
     strategy:
@@ -10,82 +11,52 @@ jobs:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    env:
-      WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES: '33554432'
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Install diagnostic tools in disposable runner
+      - name: Install disposable diagnostic dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends build-essential libwebkit2gtk-4.1-dev python3-gi gir1.2-webkit2-4.1 xvfb xauth pulseaudio pulseaudio-utils dbus-x11 ffmpeg gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-gl
-      - name: Download the published AppImage and prepare original test files
+          sudo apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-dev build-essential ffmpeg gstreamer1.0-gl xvfb xauth pulseaudio pulseaudio-utils dbus-x11
+      - name: Fetch the existing unpublished candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl -fL -o published.AppImage https://github.com/glitchthekillah/zenith/releases/download/v0.2.5/Zenith_0.2.5_amd64.AppImage
-          chmod +x published.AppImage
-          ./published.AppImage --appimage-extract >/dev/null
-          mkdir -p /tmp/zenith-media-fixtures
-          for audio in aac ac3; do
-            if [ "$audio" = ac3 ]; then ext=mkv; else ext=mp4; fi
-            ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=1920x1080:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 4 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a "$audio" -ac 6 /tmp/zenith-media-fixtures/video.$ext
-          done
-          gcc -Wno-deprecated-declarations tests/linux-webkit-probe.c -o /tmp/zenith-webkit-probe $(pkg-config --cflags --libs webkit2gtk-4.1) -ldl
-          for ext in mp4 mkv; do
-            printf '<!doctype html><video autoplay controls playsinline src="video.%s"></video><script>document.querySelector("video").play().catch(e=>window.playError=e.name+": "+e.message)</script>' "$ext" > /tmp/zenith-media-fixtures/$ext.html
-          done
-          cp /tmp/zenith-media-fixtures/mkv.html /tmp/zenith-media-fixtures/mkv-software.html
-          sed 's/autoplay controls/autoplay muted controls/' /tmp/zenith-media-fixtures/mkv.html > /tmp/zenith-media-fixtures/mkv-muted.html
+          gh run download 43291198552 --repo glitchthekillah/zenith --name zenith-linux-x64 --dir candidate
+          cd candidate
+          sha256sum --check SHA256SUMS
+          chmod +x *.AppImage
+          ./*.AppImage --appimage-extract >/dev/null
+      - name: Generate public synthetic delayed-subtitle fixture
+        run: |
+          mkdir /tmp/zenith-media-fixtures
+          ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=blue:size=640x360:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 60 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a ac3 -ac 6 /tmp/zenith-media-fixtures/video.mkv
           python3 tests/linux-realistic-fixtures.py
-          openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 -keyout /tmp/zenith-fixture.key -out /tmp/zenith-fixture.crt -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1'
-          sudo cp /tmp/zenith-fixture.crt /usr/local/share/ca-certificates/zenith-fixture.crt
-          sudo update-ca-certificates >/dev/null
-          export ZENITH_FIXTURE_TLS_CERT=/tmp/zenith-fixture.crt ZENITH_FIXTURE_TLS_KEY=/tmp/zenith-fixture.key
-          node tests/media-route-server.cjs /tmp/zenith-media-fixtures >/tmp/zenith-test-http.log 2>&1 &
-          find squashfs-root -iname '*giognutls*' -o -iname '*gstsoup*'
+          python3 tests/linux-delayed-subtitles.py
+          gcc -Wno-deprecated-declarations tests/linux-webkit-probe.c -o candidate/squashfs-root/usr/bin/zenith $(pkg-config --cflags --libs webkit2gtk-4.1) -ldl
+      - name: Compare preroll paths
+        env:
+          APPDIR: ${{ github.workspace }}/candidate/squashfs-root
+          WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES: '33554432'
+          GST_DEBUG: '2'
+        run: |
+          node tests/media-range-server.cjs /tmp/zenith-media-fixtures >/tmp/preroll-http.log 2>&1 &
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=zenith-test
-      - name: Native audible WebKit playback
-        id: native
-        continue-on-error: true
-        env:
-          ZENITH_SOURCE: ${{ github.workspace }}
-          ZENITH_FIXTURES: /tmp/zenith-media-fixtures
-          GST_DEBUG: '2'
-        run: |
-          result=0
-          for ext in mp4 mkv pgs route pgs-route https-mp4 https-mkv https-pgs; do
-            echo "Testing $ext"
-            if [ "$ext" = mkv-software ]; then export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1; fi
-            ZENITH_PROBE_URL="http://127.0.0.1:18488/$ext.html" dbus-run-session -- xvfb-run -a /tmp/zenith-webkit-probe || result=1
+          export PULSE_SINK=zenith-test
+          for mode in auto metadata playbin3 playbin3-metadata; do
+            unset WEBKIT_GST_USE_PLAYBIN3
+            if [[ "$mode" = playbin3* ]]; then export WEBKIT_GST_USE_PLAYBIN3=1; fi
+            echo "BEGIN $mode"
+            ZENITH_PROBE_URL="http://127.0.0.1:18488/delayed-$mode.html" dbus-run-session -- xvfb-run -a "$APPDIR/AppRun" >"/tmp/preroll-$mode.log" 2>&1 || true
+            grep -E 'PASS |FAIL |WAIT ' "/tmp/preroll-$mode.log" || true
+            echo "END $mode"
           done
-          exit "$result"
-      - name: Published AppImage audible WebKit playback
-        id: bundled
-        continue-on-error: true
-        env:
-          ZENITH_SOURCE: ${{ github.workspace }}
-          ZENITH_FIXTURES: /tmp/zenith-media-fixtures
-          GST_DEBUG: '2'
-          GST_REGISTRY_1_0: /tmp/zenith-appimage-registry.bin
-        run: |
-          mv squashfs-root/usr/bin/zenith squashfs-root/usr/bin/zenith.real
-          cp /tmp/zenith-webkit-probe squashfs-root/usr/bin/zenith
-          chmod +x squashfs-root/usr/bin/zenith
-          export APPDIR="$PWD/squashfs-root"
-          result=0
-          for ext in mp4 mkv pgs route pgs-route https-mp4 https-mkv https-pgs; do
-            echo "Testing $ext"
-            if [ "$ext" = mkv-software ]; then export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1; fi
-            ZENITH_PROBE_URL="http://127.0.0.1:18488/$ext.html" dbus-run-session -- xvfb-run -a "$APPDIR/AppRun" || result=1
-          done
-          exit "$result"
-      - name: Require both runtime checks
-        env:
-          NATIVE: ${{ steps.native.outcome }}
-          BUNDLED: ${{ steps.bundled.outcome }}
-        run: |
-          echo "native=$NATIVE bundled=$BUNDLED"
-          test "$NATIVE" = success
-          test "$BUNDLED" = success
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: preroll-${{ matrix.os }}
+          path: /tmp/preroll-*.log
+          retention-days: 7
