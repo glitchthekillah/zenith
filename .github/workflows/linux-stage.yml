@@ -40,7 +40,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libnotify-dev patchelf libfuse2 gstreamer1.0-libav gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-tools ffmpeg python3-gi gir1.2-webkit2-4.1 xvfb pulseaudio pulseaudio-utils dbus-x11
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgstreamer1.0-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libnotify-dev patchelf libfuse2 gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-tools ffmpeg python3-gi gir1.2-webkit2-4.1 xvfb pulseaudio pulseaudio-utils dbus-x11
       - name: Install locked JavaScript dependencies and test
         run: |
           npm ci
@@ -64,12 +64,13 @@ jobs:
           cp src-tauri/target/release/bundle/deb/*.deb linux-release/
           dpkg-deb -f linux-release/*.deb Package Version Architecture
           dependencies="$(dpkg-deb -f linux-release/*.deb Depends)"
-          for package in gstreamer1.0-libav gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly; do
+          for package in gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly; do
             echo "$dependencies" | grep -F "$package"
           done
           env -u APPIMAGE_EXTRACT_AND_RUN src-tauri/target/release/bundle/appimage/*.AppImage --appimage-extract >/dev/null
           find squashfs-root -name 'libgstlibav.so' | grep .
           find squashfs-root -name 'libgstmatroska.so' | grep .
+          find squashfs-root -name 'libgstopengl.so' | grep .
 
           cd linux-release
           sha256sum *.AppImage *.deb > SHA256SUMS

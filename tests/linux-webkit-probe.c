@@ -1,4 +1,5 @@
 #include <webkit2/webkit2.h>
+#include <gst/gst.h>
 #include <stdio.h>
 #include <string.h>
 static int outcome = 1, busy = 0, polls = 0;
@@ -25,6 +26,13 @@ static gboolean tick(gpointer view) {
   return TRUE;
 }
 int main(int argc, char **argv) {
+  gst_init(&argc, &argv);
+  const char *required[] = {"avdec_h264", "avdec_ac3", "matroskademux", "qtdemux", "souphttpsrc", "pulsesink", "glupload", "glcolorconvert"};
+  for (unsigned i = 0; i < sizeof(required) / sizeof(required[0]); i++) {
+    GstElementFactory *factory = gst_element_factory_find(required[i]);
+    if (!factory) { fprintf(stderr, "FAIL missing packaged GStreamer element: %s\n", required[i]); return 2; }
+    gst_object_unref(factory);
+  }
   gtk_init(&argc, &argv);
   WebKitWebsitePolicies *policies = webkit_website_policies_new_with_policies("autoplay", WEBKIT_AUTOPLAY_ALLOW, NULL);
   GtkWidget *view = g_object_new(WEBKIT_TYPE_WEB_VIEW, "website-policies", policies, NULL);
