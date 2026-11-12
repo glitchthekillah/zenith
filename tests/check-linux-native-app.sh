@@ -11,6 +11,9 @@ ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=blue:size=640x360:rate=2
 python3 "$source_dir/tests/linux-realistic-fixtures.py"
 python3 "$source_dir/tests/linux-delayed-subtitles.py"
 ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 30 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a ac3 -ac 6 /tmp/zenith-media-fixtures/moving.mkv
+ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=320x180:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 5 -c:v libx265 -preset ultrafast -x265-params pools=1:frame-threads=1 -pix_fmt yuv420p10le -c:a ac3 /tmp/zenith-media-fixtures/hevc10.mkv
+ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=320x180:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 5 -c:v libvpx-vp9 -deadline realtime -cpu-used 8 -b:v 500k -c:a libopus /tmp/zenith-media-fixtures/vp9.mkv
+ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=320x180:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 5 -c:v libaom-av1 -cpu-used 8 -row-mt 1 -threads 2 -b:v 500k -c:a libopus /tmp/zenith-media-fixtures/av1.mkv
 node "$source_dir/tests/media-range-server.cjs" /tmp/zenith-media-fixtures >/tmp/native-app-http.log 2>&1 &
 server=$!
 parec --device=zenith-test.monitor --format=s16le --rate=48000 --channels=2 >/tmp/native-app-audio.pcm &

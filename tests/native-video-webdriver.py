@@ -119,6 +119,12 @@ try:
     assert not js('return !!document.querySelector(".pl-error")')
     async_js('await playerUiTest.player.close(true);return true;')
     print('PASS actual player UI, menus and repeated title changes',flush=True)
+    for source,codec,audio in [('hevc10','hevc','ac3'),('vp9','vp9','opus'),('av1','av1','opus')]:
+        async_js('playerUiTest.source.Id='+json.dumps(source)+';playerUiTest.source.MediaStreams[0].Codec='+json.dumps(codec)+';playerUiTest.source.MediaStreams[1].Codec='+json.dumps(audio)+';await playerUiTest.player.play({Id:"fixture",Name:"Codec compatibility",Type:"Movie",RunTimeTicks:50000000,MediaSources:[playerUiTest.source],UserData:{}},{start:0});return true;')
+        until('document.querySelector("#player video").currentTime>1 && document.querySelector("#player video").videoWidth>=320')
+        assert not js('return !!document.querySelector(".pl-error")'),source
+        print('PASS original-file native codec compatibility',source,flush=True)
+    async_js('await playerUiTest.player.close(true);return true;')
 finally:
     if session:
         try:request('DELETE','/session/'+session)
