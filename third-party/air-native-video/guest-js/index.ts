@@ -1,3 +1,4 @@
+import { isNativeEnded } from './native-ended'
 import { invoke } from '@tauri-apps/api/core'
 import type {
   BackendVideoController,
@@ -352,8 +353,14 @@ class NativeSurfaceVideoController extends EventTarget implements BackendVideoCo
   async setPlaybackRate(rate: number): Promise<void> {
     if (!Number.isFinite(rate) || rate < 0.5 || rate > 2) throw new RangeError('Invalid playback rate')
     if (this.#platform !== 'linux') return unsupported('playbackRate', 'Native rate control is Linux-only')
-    this.#acceptSnapshot(await this.#control('rate', rate))
+    const previous = this.#rate
     this.#rate = rate
+    try {
+      this.#acceptSnapshot(await this.#control('rate', rate))
+    } catch (error) {
+      if (this.#rate === rate) this.#rate = previous
+      throw error
+    }
     this.element.dispatchEvent(new Event('ratechange'))
   }
 
@@ -574,13 +581,8 @@ class NativeSurfaceVideoController extends EventTarget implements BackendVideoCo
         this.element.dispatchEvent(new Event(snapshot.playing ? 'play' : 'pause'))
         if (snapshot.playing) this.element.dispatchEvent(new Event('playing'))
       }
-      const wasEnded = Boolean(previous
-        && !previous.live
-        && previous.durationSeconds > 0
-        && previous.currentTimeSeconds >= previous.durationSeconds)
-      const isEnded = !snapshot.live
-        && snapshot.durationSeconds > 0
-        && snapshot.currentTimeSeconds >= snapshot.durationSeconds
+      const wasEnded = isNativeEnded(previous)
+      const isEnded = isNativeEnded(snapshot)
       if (!wasEnded && isEnded) {
         this.#requestedPlaying = false
         this.element.dispatchEvent(new Event('ended'))
@@ -692,12 +694,7 @@ class NativeSurfaceVideoController extends EventTarget implements BackendVideoCo
         : this.#snapshot?.durationSeconds ?? Number.NaN,
     })
     define('paused', { get: () => !this.#requestedPlaying })
-    define('ended', {
-      get: () => Boolean(this.#snapshot
-        && !this.#snapshot.live
-        && this.#snapshot.durationSeconds > 0
-        && this.#snapshot.currentTimeSeconds >= this.#snapshot.durationSeconds),
-    })
+    define('ended', {get: () => isNativeEnded(this.#snapshot)})
     define('volume', {
       get: () => this.#volume,
       set: (value: number) => { this.#runDetached(this.setVolume(Number(value))) },

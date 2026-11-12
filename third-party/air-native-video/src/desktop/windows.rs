@@ -675,6 +675,7 @@ mod gstreamer {
             })
             .unwrap_or((0, 0));
         Ok(NativePlaybackSnapshot {
+            ended: None,
             duration_seconds: duration,
             current_time_seconds: position,
             buffered_seconds: buffered,

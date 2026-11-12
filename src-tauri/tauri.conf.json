@@ -4,6 +4,7 @@
   "version": "../package.json",
   "identifier": "com.glitch.zenith",
   "build": {
+    "beforeBuildCommand": "node scripts/build-native-video.mjs",
     "frontendDist": "../app"
   },
   "app": {

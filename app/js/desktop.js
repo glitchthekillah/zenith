@@ -54,7 +54,8 @@
   const dragFrom = (t) => {
     if (!t?.closest || t.closest('button, a, input, select, textarea, [role=slider], .tb-buttons')) return false;
     if (t.closest('#titlebar')) return true;
-    return document.body.classList.contains('mini') && !!t.closest('#player .pl-top, #player video');
+    if (t.closest('.pl-bottom, .pl-menu, .pl-next, .pl-error, .pl-info')) return false;
+    return document.body.classList.contains('mini') && !!t.closest('#player');
   };
   // The drag starts once the mouse moves, so a double click still reaches the page
   let press = null;

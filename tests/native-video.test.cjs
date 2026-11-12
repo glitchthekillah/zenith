@@ -1,5 +1,5 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-function subject(){const c={DOMException,AbortController,EventTarget,Event,setTimeout,clearTimeout};vm.createContext(c);vm.runInContext(fs.readFileSync('app/js/native-video.js','utf8').replace(/^export /gm,'')+'\nglobalThis.subject={openNativeVideo,nativeTrackId,waitNativeVideo};',c);return c.subject;}
+function subject(){const c={DOMException,AbortController,EventTarget,Event,setTimeout,clearTimeout};vm.createContext(c);vm.runInContext(fs.readFileSync('app/js/native-video.js','utf8').replace(/^export /gm,'')+'\nglobalThis.subject={openNativeVideo,nativeTrackId,waitNativeVideo,parseNativeCues,nativeCueText};',c);return c.subject;}
 test('native attachment receives only the original URL, controls and bounded buffer settings',async()=>{
  const calls=[],video={},controls={},abort=new AbortController(),controller={destroy:async()=>{}};
  const result=await subject().openNativeVideo(video,{url:'https://media.test/Videos/item/stream?static=true',controls,signal:abort.signal},async(v,o)=>{calls.push({v,o});return controller});
@@ -30,4 +30,12 @@ test('resume waits for decoded video metadata, not merely native allocation',asy
 test('closing during native preroll cancels the wait',async()=>{
  const video=Object.assign(new EventTarget(),{videoWidth:0,readyState:0}),abort=new AbortController();
  const promise=subject().waitNativeVideo(video,abort.signal);abort.abort();await assert.rejects(promise,{name:'AbortError'});
+});
+test('external WebVTT follows native time, including overlapping cues and cue settings',()=>{
+ const {parseNativeCues,nativeCueText}=subject();
+ const cues=parseNativeCues('WEBVTT\r\n\r\nNOTE ignored\r\nnot a cue\r\n\r\nfirst\r\n00:00:26.406 --> 00:00:28.450 align:start position:10%\r\n<i>Hello</i>\r\nworld\r\n\r\n00:27.000 --> 00:30.000\r\nAnother line\r\n\r\n99:99 --> bad\r\ninvalid');
+ assert.equal(cues.length,2);assert.equal(cues[0].start,26.406);
+ assert.deepEqual(Array.from(nativeCueText(cues,27.5)),['<i>Hello</i>\nworld','Another line']);
+ assert.deepEqual(Array.from(nativeCueText(cues,28.45)),['Another line']);
+ assert.equal(nativeCueText(cues,30).length,0);
 });

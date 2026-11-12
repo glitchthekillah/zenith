@@ -157,6 +157,8 @@ pub struct NativeTrackInfo {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativePlaybackSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended: Option<bool>,
     pub duration_seconds: f64,
     pub current_time_seconds: f64,
     pub buffered_seconds: f64,

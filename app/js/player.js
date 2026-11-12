@@ -4,7 +4,7 @@ import { $, esc, icon, fmtTime, settings, save, desktop, toast, emit, http, grou
 import * as jf from './jellyfin.js';
 import {attachNativeAudio, audioMuted, setAudioMuted} from './native-audio.js';
 import {playbackFailure} from './playback-errors.js';
-import {openNativeVideo, nativeTrackId, waitNativeVideo} from './native-video.js';
+import {openNativeVideo, nativeTrackId, waitNativeVideo, parseNativeCues, nativeCueText} from './native-video.js';
 import { pickAudio, pickSub, applySubStyle, cueHtml } from './tracks.js';
 
 // Electron can switch audio tracks inside the original file (no server work needed)
@@ -185,7 +185,7 @@ async function load(at = 0) {
   if (desktop?.nativeVideo) {
     try {
       const controller = await openNativeVideo(v, {url:pb.url, signal:nativeAbort.signal,
-        controls:[...root().children].filter(e=>e!==v)});
+        controls:[...root().children, document.getElementById('toasts')].filter(e=>e && e!==v)});
       if (S !== session || session.loadEpoch !== epoch) { await controller.destroy(); return; }
       session.native = controller;
       controller.on('error', e => { if (S === session && session.loadEpoch === epoch) fail(e.detail); });
@@ -241,6 +241,7 @@ function applySubtitles() {
   const v = S.v;
   for (const t of [...v.querySelectorAll('track')]) t.remove();
   const box = $('.pl-subs-in', root()); if (box) box.innerHTML = '';
+  S.nativeCues = [];
   const pb = S.pb;
   if (S.sub === undefined) {
     // First load: pick from settings (auto = server default, or forced tracks)
@@ -250,9 +251,17 @@ function applySubtitles() {
   }
   const s = pb.subtitles.find((x) => x.index === S.sub);
   if (S.native) {
-    const id = nativeTrackId(S.native, 'subtitle', S.sub, pb.subtitles);
+    const id = s && !s.textBased ? nativeTrackId(S.native, 'subtitle', S.sub, pb.subtitles) : undefined;
     S.native.selectTrack('subtitle', id).catch(() => toast("Couldn't select those subtitles.", 'bad'));
-    if (!s?.external) return;
+    if (s?.textBased && s.url) {
+      const session = S, want = S.sub, epoch = S.loadEpoch;
+      http(s.url, {headers:{Accept:'text/vtt,*/*'}}).then(text => {
+        if (S !== session || S.sub !== want || S.loadEpoch !== epoch || typeof text !== 'string') return;
+        S.nativeCues = parseNativeCues(text);
+        paintNativeSubtitles();
+      }).catch(() => { if (S === session) toast("Couldn't load those subtitles.", 'bad'); });
+    }
+    return;
   }
   if (!s) return;
   if (!s.textBased) { if (!S.subTextOk) { S.subTextOk = false; } return; }
@@ -275,9 +284,15 @@ function applySubtitles() {
 
 const pos = () => (S ? S.offset + (S.v.currentTime || 0) : 0);
 const duration = () => (S?.item.RunTimeTicks ? S.item.RunTimeTicks / 1e7 : (S?.v.duration || 0) + (S?.offset || 0));
+function paintNativeSubtitles() {
+  if (!S?.native) return;
+  const box = $('.pl-subs-in', root());
+  if (box) box.innerHTML = nativeCueText(S.nativeCues || [], pos()).map(text=>`<span>${cueHtml(text)}</span>`).join('<br>');
+}
 
 function tick() {
   if (!S) return;
+  paintNativeSubtitles();
   const p = pos(), d = duration();
   $('.pl-time', root()).textContent = `${fmtTime(p)} / ${fmtTime(d)}`;
   $('.done', root()).style.width = d ? `${(p / d) * 100}%` : '0';

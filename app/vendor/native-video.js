@@ -1,5 +1,11 @@
 // Air native video adapter (MIT OR Apache-2.0). Source and licenses: third-party/air-native-video.
 
+// third-party/air-native-video/guest-js/native-ended.ts
+function isNativeEnded(snapshot) {
+  if (!snapshot) return false;
+  return snapshot.ended ?? Boolean(!snapshot.live && snapshot.durationSeconds > 0 && snapshot.currentTimeSeconds >= snapshot.durationSeconds);
+}
+
 // node_modules/@tauri-apps/api/external/tslib/tslib.es6.js
 function __classPrivateFieldGet(receiver, state, kind, f) {
   if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
@@ -1312,8 +1318,14 @@ var NativeSurfaceVideoController = class extends EventTarget {
   async setPlaybackRate(rate) {
     if (!Number.isFinite(rate) || rate < 0.5 || rate > 2) throw new RangeError("Invalid playback rate");
     if (this.#platform !== "linux") return unsupported("playbackRate", "Native rate control is Linux-only");
-    this.#acceptSnapshot(await this.#control("rate", rate));
+    const previous = this.#rate;
     this.#rate = rate;
+    try {
+      this.#acceptSnapshot(await this.#control("rate", rate));
+    } catch (error) {
+      if (this.#rate === rate) this.#rate = previous;
+      throw error;
+    }
     this.element.dispatchEvent(new Event("ratechange"));
   }
   async seek(positionSeconds) {
@@ -1512,8 +1524,8 @@ var NativeSurfaceVideoController = class extends EventTarget {
         this.element.dispatchEvent(new Event(snapshot.playing ? "play" : "pause"));
         if (snapshot.playing) this.element.dispatchEvent(new Event("playing"));
       }
-      const wasEnded = Boolean(previous && !previous.live && previous.durationSeconds > 0 && previous.currentTimeSeconds >= previous.durationSeconds);
-      const isEnded = !snapshot.live && snapshot.durationSeconds > 0 && snapshot.currentTimeSeconds >= snapshot.durationSeconds;
+      const wasEnded = isNativeEnded(previous);
+      const isEnded = isNativeEnded(snapshot);
       if (!wasEnded && isEnded) {
         this.#requestedPlaying = false;
         this.element.dispatchEvent(new Event("ended"));
@@ -1604,9 +1616,7 @@ var NativeSurfaceVideoController = class extends EventTarget {
       get: () => this.#snapshot?.live ? Number.POSITIVE_INFINITY : this.#snapshot?.durationSeconds ?? Number.NaN
     });
     define("paused", { get: () => !this.#requestedPlaying });
-    define("ended", {
-      get: () => Boolean(this.#snapshot && !this.#snapshot.live && this.#snapshot.durationSeconds > 0 && this.#snapshot.currentTimeSeconds >= this.#snapshot.durationSeconds)
-    });
+    define("ended", { get: () => isNativeEnded(this.#snapshot) });
     define("volume", {
       get: () => this.#volume,
       set: (value) => {

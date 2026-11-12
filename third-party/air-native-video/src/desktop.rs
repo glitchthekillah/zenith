@@ -467,6 +467,7 @@ mod linux_gstreamer {
         target_buffer_bytes: Option<u64>,
         desired_playing: bool,
         playback_rate: f64,
+        ended: bool,
         error: Option<String>,
         last_rendered: u64,
         last_sample_at: Instant,
@@ -616,6 +617,7 @@ mod linux_gstreamer {
             target_buffer_bytes,
             desired_playing: payload.autoplay,
             playback_rate: 1.0,
+            ended: false,
             error: None,
             last_rendered: 0,
             last_sample_at: Instant::now(),
@@ -738,6 +740,7 @@ mod linux_gstreamer {
         player.target_buffer_bytes = target_buffer_bytes;
         player.desired_playing = payload.autoplay;
         player.playback_rate = 1.0;
+        player.ended = false;
         player.error = None;
         player.last_rendered = rendered_frames(&player.gtk_sink);
         player.last_sample_at = Instant::now();
@@ -789,6 +792,12 @@ mod linux_gstreamer {
             ensure_session(&player.session_key, &payload.session_key)?;
             match payload.action.as_str() {
                 "play" => {
+                    if player.ended {
+                        player.pipeline.seek(player.playback_rate, gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
+                            gst::SeekType::Set, gst::ClockTime::ZERO, gst::SeekType::None, gst::ClockTime::NONE)
+                            .map_err(|error| Error::Pipeline(error.to_string()))?;
+                        player.ended = false;
+                    }
                     player.desired_playing = true;
                     player
                         .pipeline
@@ -816,6 +825,7 @@ mod linux_gstreamer {
                         gst::SeekType::Set, position, gst::SeekType::None, gst::ClockTime::NONE)
                         .map_err(|error| Error::Pipeline(error.to_string()))?;
                     player.playback_rate = rate;
+                    player.ended = false;
                 }
                 "volume" => {
                     player
@@ -985,6 +995,7 @@ mod linux_gstreamer {
             .unwrap_or((0, 0));
         let playing = player.desired_playing;
         Ok(NativePlaybackSnapshot {
+            ended: Some(player.ended),
             duration_seconds: duration,
             current_time_seconds: position,
             buffered_seconds: buffered,
@@ -1013,6 +1024,12 @@ mod linux_gstreamer {
         };
         while let Some(message) = bus.pop() {
             match message.view() {
+                gst::MessageView::Eos(_) => {
+                    player.ended = true;
+                    player.desired_playing = false;
+                    player.pipeline.set_state(gst::State::Paused)
+                        .map_err(|error| Error::Pipeline(error.to_string()))?;
+                }
                 gst::MessageView::Buffering(buffering) => {
                     player.buffering_percent = buffering.percent();
                     let target = if player.desired_playing && player.buffering_percent >= 100 {
@@ -1807,6 +1824,7 @@ mod linux_mpv {
         let hwdec =
             property::<String>(&player.mpv, "hwdec-current").unwrap_or_else(|| "software".into());
         Ok(NativePlaybackSnapshot {
+            ended: None,
             duration_seconds: duration,
             current_time_seconds: position,
             buffered_seconds: buffered,

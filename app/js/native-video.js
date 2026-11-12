@@ -5,7 +5,7 @@ export async function openNativeVideo(video, {url, controls, signal}, attach) {
   const factory = attach || (await import('../vendor/native-video.js')).attachTauriBackend;
   signal?.throwIfAborted();
   const controller = await factory(video, {
-    source: {uri: url}, autoplay: true, signal, controlRegions: controls,
+    source: {uri: url}, autoplay: true, signal, controlRegions: controls, suspendWhenHidden: false,
     playback: {engine: 'gstreamer', linux: {buffer: {maxSeconds: 15, maxBytes: 64 * 1024 * 1024}}},
   });
   if (signal?.aborted) {
@@ -40,3 +40,23 @@ export function waitNativeVideo(video, signal) {
     if (signal?.aborted) cancelled(); else check();
   });
 }
+export function parseNativeCues(text) {
+  const stamp = value => {
+    const match = /^(?:(\d{2,}):)?(\d{2}):(\d{2})\.(\d{3})$/.exec(value);
+    if (!match || Number(match[2]) >= 60 || Number(match[3]) >= 60) return NaN;
+    return Number(match[1] || 0) * 3600 + Number(match[2]) * 60 + Number(match[3]) + Number(match[4]) / 1000;
+  };
+  const cues = [];
+  for (const block of String(text).replace(/\r/g, '').split(/\n\s*\n/)) {
+    const lines = block.split('\n');
+    if (/^(?:WEBVTT|NOTE|STYLE|REGION)(?:\s|$)/.test(lines[0])) continue;
+    const index = lines.findIndex(line => line.includes('-->'));
+    if (index < 0) continue;
+    const match = /^(\S+)\s+-->\s+(\S+)(?:\s.*)?$/.exec(lines[index]);
+    if (!match) continue;
+    const start = stamp(match[1]), end = stamp(match[2]);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) cues.push({start,end,text:lines.slice(index+1).join('\n')});
+  }
+  return cues;
+}
+export function nativeCueText(cues, time) { return cues.filter(c => time >= c.start && time < c.end).map(c => c.text); }

@@ -21,3 +21,12 @@ test('title bar drags after the mouse moves, its buttons do not',()=>{const {doc
  go(el('#titlebar'),1,2);assert.equal(dragged(),0);
  go(el('#titlebar'));assert.equal(dragged(),1);
  go(el('.tb-buttons'));go(el('#titlebar'),2);assert.equal(dragged(),1)});
+test('mini native video background can drag while control panels cannot',()=>{
+ load.mini=true;
+ try{
+  const {docListeners,dragged}=load();
+  const go=selectors=>{const target={closest:s=>s.split(',').some(x=>selectors.includes(x.trim()))?{}:null};docListeners.mousedown({button:0,detail:1,target,screenX:0,screenY:0});docListeners.mousemove({buttons:1,screenX:10,screenY:0});docListeners.mouseup({});};
+  go(['#player']);assert.equal(dragged(),1);
+  go(['#player','.pl-menu']);go(['#player','button']);assert.equal(dragged(),1);
+ }finally{load.mini=false;}
+});
