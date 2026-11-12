@@ -46,7 +46,7 @@ jobs:
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=zenith-test
           export PULSE_SINK=zenith-test
-          for mode in disabled playbin3-disabled; do
+          for mode in disabled; do
             unset WEBKIT_GST_USE_PLAYBIN3
             if [[ "$mode" = playbin3* ]]; then export WEBKIT_GST_USE_PLAYBIN3=1; fi
             echo "BEGIN $mode"
@@ -54,6 +54,9 @@ jobs:
             grep -E 'PASS |FAIL |WAIT ' "/tmp/preroll-$mode.log" || true
             echo "END $mode"
           done
+          gcc tests/linux-native-decode-probe.c -o "$APPDIR/usr/bin/zenith" $(pkg-config --cflags --libs gobject-2.0) -ldl
+          ZENITH_PROBE_MEDIA_URL=http://127.0.0.1:18488/delayed.mkv "$APPDIR/AppRun" > /tmp/preroll-native.log 2>&1
+          grep 'PASS native' /tmp/preroll-native.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
