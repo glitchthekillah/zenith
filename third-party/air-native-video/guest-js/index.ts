@@ -135,6 +135,7 @@ class NativeSurfaceVideoController extends EventTarget implements BackendVideoCo
   #destroyed = false
   #volume = 1
   #rate = 1
+  #trackChanges = 0
   #metadataReady = false
   #endedNotified = false
   #muted = false
@@ -409,10 +410,22 @@ class NativeSurfaceVideoController extends EventTarget implements BackendVideoCo
         (track) => track.id === trackId && track.kind === kind,
       )
       if (!selected) throw new Error(`Unknown ${kind} track: ${trackId}`)
-      this.#acceptSnapshot(await this.#control('track', 0, selected.index))
+      // Re-sending the active stream set needlessly reconfigures playbin3,
+      // including when the host restores preferences immediately after seeking.
+      // An overlapping change still needs its request even if our snapshot is old.
+      if (selected.selected && this.#trackChanges === 0) return
+      this.#trackChanges++
+      try {
+        this.#acceptSnapshot(await this.#control('track', 0, selected.index))
+      } finally { this.#trackChanges-- }
     } else if (kind === 'subtitle') {
       const active = this.#media.tracks.find((track) => track.kind === kind && track.selected)
-      if (active) this.#acceptSnapshot(await this.#control('deselectTrack', 0, active.streamIndex))
+      if (active) {
+        this.#trackChanges++
+        try {
+          this.#acceptSnapshot(await this.#control('deselectTrack', 0, active.streamIndex))
+        } finally { this.#trackChanges-- }
+      }
     } else {
       return unsupported(`${kind}TrackDisable`,
         `The Tauri native engines cannot disable the selected ${kind} track through the common API`)

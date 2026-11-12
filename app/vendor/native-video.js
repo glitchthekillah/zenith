@@ -1123,6 +1123,7 @@ var NativeSurfaceVideoController = class extends EventTarget {
   #destroyed = false;
   #volume = 1;
   #rate = 1;
+  #trackChanges = 0;
   #metadataReady = false;
   #endedNotified = false;
   #muted = false;
@@ -1366,10 +1367,23 @@ var NativeSurfaceVideoController = class extends EventTarget {
         (track) => track.id === trackId && track.kind === kind
       );
       if (!selected) throw new Error(`Unknown ${kind} track: ${trackId}`);
-      this.#acceptSnapshot(await this.#control("track", 0, selected.index));
+      if (selected.selected && this.#trackChanges === 0) return;
+      this.#trackChanges++;
+      try {
+        this.#acceptSnapshot(await this.#control("track", 0, selected.index));
+      } finally {
+        this.#trackChanges--;
+      }
     } else if (kind === "subtitle") {
       const active = this.#media.tracks.find((track) => track.kind === kind && track.selected);
-      if (active) this.#acceptSnapshot(await this.#control("deselectTrack", 0, active.streamIndex));
+      if (active) {
+        this.#trackChanges++;
+        try {
+          this.#acceptSnapshot(await this.#control("deselectTrack", 0, active.streamIndex));
+        } finally {
+          this.#trackChanges--;
+        }
+      }
     } else {
       return unsupported(
         `${kind}TrackDisable`,

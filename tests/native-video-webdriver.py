@@ -50,6 +50,10 @@ try:
     js('document.getElementById("native-pause").click()');until('!nativeTest.v.paused')
     async_js('await nativeTest.controller.seek(30);const subtitle=nativeTest.controller.tracks.find(t=>t.kind==="subtitle");if(subtitle)await nativeTest.controller.selectTrack("subtitle",subtitle.id);return true;')
     until('nativeTest.v.currentTime>32')
+    for target in [5,27,30]:
+        async_js('await nativeTest.controller.seek('+str(target)+');const subtitle=nativeTest.controller.tracks.find(t=>t.kind==="subtitle"&&t.selected);if(subtitle)await nativeTest.controller.selectTrack("subtitle",subtitle.id);return true;')
+        until('nativeTest.v.currentTime>'+str(target+.35))
+    print('PASS repeated seeking and restoring the already selected subtitle',flush=True)
     async_js('await nativeTest.controller.setPlaybackRate(1.5);return true;')
     before=js('return nativeTest.v.currentTime');time.sleep(1.5)
     assert js('return nativeTest.v.currentTime')-before>1.5

@@ -9,3 +9,5 @@ Vendored because the inspected Linux surface implementation is not yet available
 Zenith changes: add native playback-rate control, preserve rate during seeks, expose it through the media-element facade. The browser bundle is generated from guest-js/index.ts with scripts/build-native-video.mjs. No core Air UI or service is used.
 
 The small controls.ts registration helper comes from https://github.com/get-air/video (same MIT OR Apache-2.0 license). WebKit metadata events are deferred until decoded video dimensions are available, so resume seeking cannot run before native preroll finishes.
+
+Track restoration is idempotent when no other selection is in flight: selecting the active audio/subtitle does not reconfigure the native stream set. Pending selections prevent this optimization from swallowing a user's overlapping change back to the previous track.
