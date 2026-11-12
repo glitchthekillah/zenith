@@ -1,0 +1,82 @@
+name: Linux draft release staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build
+        required: true
+        default: v0.2.4
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+      NO_STRIP: '1'
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag }}
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Verify source version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          test "v$(node -p 'require("./package.json").version')" = "$RELEASE_TAG"
+          git rev-parse HEAD
+          rustc --version
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libnotify-dev patchelf libfuse2 gstreamer1.0-libav gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-tools ffmpeg python3-gi gir1.2-webkit2-4.1 xvfb pulseaudio pulseaudio-utils dbus-x11
+      - name: Install locked JavaScript dependencies and test
+        run: |
+          npm ci
+          node --test 'tests/*.test.cjs'
+      - name: Verify original-file playback in WebKitGTK
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=zenith-test
+          dbus-run-session -- xvfb-run -a /usr/bin/python3 tests/linux-playback.py
+      - name: Build AppImage and Debian package
+        run: npx tauri build --bundles appimage,deb --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Verify and collect Linux packages
+        run: |
+          mkdir linux-release
+          cp src-tauri/target/release/bundle/appimage/*.AppImage linux-release/
+          cp src-tauri/target/release/bundle/deb/*.deb linux-release/
+          dpkg-deb -f linux-release/*.deb Package Version Architecture
+          dependencies="$(dpkg-deb -f linux-release/*.deb Depends)"
+          for package in gstreamer1.0-libav gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly; do
+            echo "$dependencies" | grep -F "$package"
+          done
+          env -u APPIMAGE_EXTRACT_AND_RUN src-tauri/target/release/bundle/appimage/*.AppImage --appimage-extract >/dev/null
+          find squashfs-root -name 'libgstlibav.so' | grep .
+          find squashfs-root -name 'libgstmatroska.so' | grep .
+
+          cd linux-release
+          sha256sum *.AppImage *.deb > SHA256SUMS
+          cat SHA256SUMS
+      - name: Stage verified Linux files in the existing unpublished release
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
+          gh release upload "$RELEASE_TAG" linux-release/*.AppImage linux-release/*.deb linux-release/SHA256SUMS --clobber
