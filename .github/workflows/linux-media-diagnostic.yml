@@ -23,7 +23,7 @@ jobs:
           sudo apt-get install -y -qq --no-install-recommends build-essential libwebkit2gtk-4.1-dev python3-gi gir1.2-webkit2-4.1 xvfb xauth pulseaudio pulseaudio-utils dbus-x11 ffmpeg gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-gl
       - name: Download the published AppImage and prepare original test files
         run: |
-          curl -fL -o published.AppImage https://github.com/glitchthekillah/zenith/releases/download/v0.2.4/Zenith_0.2.4_amd64.AppImage
+          curl -fL -o published.AppImage https://github.com/glitchthekillah/zenith/releases/download/v0.2.5/Zenith_0.2.5_amd64.AppImage
           chmod +x published.AppImage
           ./published.AppImage --appimage-extract >/dev/null
           mkdir -p /tmp/zenith-media-fixtures
@@ -37,7 +37,8 @@ jobs:
           done
           cp /tmp/zenith-media-fixtures/mkv.html /tmp/zenith-media-fixtures/mkv-software.html
           sed 's/autoplay controls/autoplay muted controls/' /tmp/zenith-media-fixtures/mkv.html > /tmp/zenith-media-fixtures/mkv-muted.html
-          node tests/media-range-server.cjs /tmp/zenith-media-fixtures >/tmp/zenith-test-http.log 2>&1 &
+          python3 tests/linux-realistic-fixtures.py
+          node tests/media-route-server.cjs /tmp/zenith-media-fixtures >/tmp/zenith-test-http.log 2>&1 &
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=zenith-test
       - name: Native audible WebKit playback
@@ -49,7 +50,7 @@ jobs:
           GST_DEBUG: '2'
         run: |
           result=0
-          for ext in mp4 mkv; do
+          for ext in mp4 mkv pgs route pgs-route; do
             echo "Testing $ext"
             if [ "$ext" = mkv-software ]; then export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1; fi
             ZENITH_PROBE_URL="http://127.0.0.1:18488/$ext.html" dbus-run-session -- xvfb-run -a /tmp/zenith-webkit-probe || result=1
@@ -69,7 +70,7 @@ jobs:
           chmod +x squashfs-root/usr/bin/zenith
           export APPDIR="$PWD/squashfs-root"
           result=0
-          for ext in mp4 mkv; do
+          for ext in mp4 mkv pgs route pgs-route; do
             echo "Testing $ext"
             if [ "$ext" = mkv-software ]; then export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1; fi
             ZENITH_PROBE_URL="http://127.0.0.1:18488/$ext.html" dbus-run-session -- xvfb-run -a "$APPDIR/AppRun" || result=1
