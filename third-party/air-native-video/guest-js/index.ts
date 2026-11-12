@@ -136,6 +136,7 @@ class NativeSurfaceVideoController extends EventTarget implements BackendVideoCo
   #volume = 1
   #rate = 1
   #metadataReady = false
+  #endedNotified = false
   #muted = false
   #videoFit: VideoFitMode = 'fit'
   #videoZoom = 1
@@ -581,9 +582,9 @@ class NativeSurfaceVideoController extends EventTarget implements BackendVideoCo
         this.element.dispatchEvent(new Event(snapshot.playing ? 'play' : 'pause'))
         if (snapshot.playing) this.element.dispatchEvent(new Event('playing'))
       }
-      const wasEnded = isNativeEnded(previous)
       const isEnded = isNativeEnded(snapshot)
-      if (!wasEnded && isEnded) {
+      if (!this.#endedNotified && isEnded) {
+        this.#endedNotified = true
         this.#requestedPlaying = false
         this.element.dispatchEvent(new Event('ended'))
       }
@@ -648,6 +649,8 @@ class NativeSurfaceVideoController extends EventTarget implements BackendVideoCo
   }
 
   #acceptSnapshot(snapshot: NativePlaybackSnapshot): NativePlaybackSnapshot {
+    if (!isNativeEnded(snapshot)) this.#endedNotified = false
+    else this.#requestedPlaying = false
     const pending = this.#pendingSeek
     if (pending) {
       if (Math.abs(snapshot.currentTimeSeconds - pending.target) <= 1
