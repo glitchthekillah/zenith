@@ -10,6 +10,8 @@ mod secure;
 mod update;
 mod weblogin;
 mod window;
+#[cfg(target_os = "linux")]
+mod linux_renderer;
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
@@ -147,21 +149,22 @@ fn media_keys(app: &AppHandle) {
 // WebKit's 100 KB download-buffer default can deadlock interleaved MKV streams
 // after their first frames. Set the bounded window before WebKit/GStreamer starts.
 #[cfg(target_os = "linux")]
-fn configure_media_runtime() {
+fn configure_media_runtime() -> (u32, u32, u32) {
     const KEY: &str = "WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES";
     if std::env::var_os(KEY).is_none() {
         std::env::set_var(KEY, "33554432");
     }
+    linux_renderer::configure()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
     {
-        configure_media_runtime();
+        let webkit_version = configure_media_runtime();
         // Packaging checks exercise the shipped binary's defaults without a GUI.
         if std::env::args_os().any(|arg| arg == "--zenith-media-runtime") {
-            println!("{}", json!({"version": env!("CARGO_PKG_VERSION"), "mediaBufferBytes": std::env::var("WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES").ok().and_then(|v| v.parse::<u64>().ok())}));
+            println!("{}", json!({"version": env!("CARGO_PKG_VERSION"), "mediaBufferBytes": std::env::var("WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES").ok().and_then(|v| v.parse::<u64>().ok()), "webkitVersion": [webkit_version.0,webkit_version.1,webkit_version.2], "rendererOverrides": {"disableDmaBuf": std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").ok(), "forceSharedMemory": std::env::var("WEBKIT_DMABUF_RENDERER_FORCE_SHM").ok()}}));
             return;
         }
     }

@@ -1,6 +1,6 @@
 {
   "name": "zenith",
-  "version": "0.2.6",
+  "version": "0.2.7-rc.1",
   "description": "Watch, read and request from your own Jellyfin, Kavita and Seerr servers. One app, with picture in picture.",
   "scripts": {
     "start": "tauri dev",

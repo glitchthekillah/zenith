@@ -14,10 +14,13 @@ trap cleanup EXIT
 cd "$work"
 env -u APPIMAGE_EXTRACT_AND_RUN "$source_dir/$package" --appimage-extract >/dev/null
 export APPDIR="$work/squashfs-root"
-runtime=$(env -u WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES "$APPDIR/AppRun" --zenith-media-runtime)
+runtime=$(env -u WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES -u WEBKIT_DISABLE_DMABUF_RENDERER -u WEBKIT_DMABUF_RENDERER_FORCE_SHM -u WEBKIT_DISABLE_COMPOSITING_MODE "$APPDIR/AppRun" --zenith-media-runtime)
 echo "Shipped runtime: $runtime"
 export WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES=$(node -e 'const x=JSON.parse(process.argv[1]);if(x.mediaBufferBytes!==33554432||x.version!==process.argv[2])process.exit(1);console.log(x.mediaBufferBytes)' "$runtime" "$(node -p "require('$source_dir/package.json').version")")
 test "$WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES" = 33554432
+node -e 'const x=JSON.parse(process.argv[1]);const shared=x.webkitVersion[0]>2||x.webkitVersion[0]===2&&x.webkitVersion[1]>=54;if(shared?x.rendererOverrides.forceSharedMemory!=="1":x.rendererOverrides.disableDmaBuf!=="1")process.exit(1);console.log("PASS shipped version-aware renderer compatibility policy")' "$runtime"
+override=$(env -u WEBKIT_DMABUF_RENDERER_FORCE_SHM WEBKIT_DISABLE_DMABUF_RENDERER=0 "$APPDIR/AppRun" --zenith-media-runtime)
+node -e 'const x=JSON.parse(process.argv[1]);if(x.rendererOverrides.disableDmaBuf!=="0"||x.rendererOverrides.forceSharedMemory!==null)process.exit(1);console.log("PASS explicit renderer settings preserved")' "$override"
 mkdir fixtures
 for audio in aac ac3; do
   if [ "$audio" = ac3 ]; then ext=mkv; else ext=mp4; fi
