@@ -35,7 +35,7 @@ jobs:
           done
           cp /tmp/zenith-media-fixtures/mkv.html /tmp/zenith-media-fixtures/mkv-software.html
           sed 's/autoplay controls/autoplay muted controls/' /tmp/zenith-media-fixtures/mkv.html > /tmp/zenith-media-fixtures/mkv-muted.html
-          python3 -m http.server 18488 --bind 127.0.0.1 --directory /tmp/zenith-media-fixtures >/tmp/zenith-test-http.log 2>&1 &
+          node tests/media-range-server.cjs /tmp/zenith-media-fixtures >/tmp/zenith-test-http.log 2>&1 &
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=zenith-test
       - name: Native audible WebKit playback
