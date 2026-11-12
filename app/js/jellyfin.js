@@ -147,7 +147,7 @@ export async function playback(id, { audioIndex, subIndex, start = 0, maxBitrate
   const base = S().url, token = S().token;
   if (!src.SupportsDirectPlay) {
     const formats = [src.Container, ...(src.MediaStreams || []).filter(s=>s.Type==='Video'||s.Type==='Audio').map(s=>s.Codec)].filter(Boolean).join(' / ');
-    throw new Error(`This original file cannot direct play on this device${formats ? ` (${formats})` : ''}. Server transcoding is disabled. Choose a compatible copy or install the required local codec.`);
+    throw new Error(`This original file cannot direct play on this device${formats ? ` (${formats})` : ''}. Server transcoding is disabled.`);
   }
   if (audioIndex != null && !clientAudio && audioIndex !== src.DefaultAudioStreamIndex) throw new Error('This device cannot switch audio tracks in the original file. Select the default audio track for direct play.');
   const method = 'Direct play', hls = false;

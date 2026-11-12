@@ -1,3 +1,4 @@
+import {createServerLoading} from './server-loading.js';
 // Shared pieces: settings, server requests, routing and small UI helpers.
 export const desktop = window.zenithDesktop || null;
 export const $ = (s, root = document) => root.querySelector(s);
@@ -62,12 +63,19 @@ export const gsuf = (x) => (x?._g && settings.groups.length > 1 ? '@' + x._g : '
 // A stable id for this install (servers use it to tell devices apart)
 export const deviceId = (() => { let id = localStorage.getItem('zenith-device'); if (!id) { id = crypto.randomUUID().replace(/-/g, ''); try { localStorage.setItem('zenith-device', id); } catch {} } return id; })();
 const webSession = (() => { let id = sessionStorage.getItem('zenith-web') || localStorage.getItem('zenith-web'); if (!id) { id = crypto.randomUUID().replace(/-/g, ''); try { localStorage.setItem('zenith-web', id); } catch {} } return id; })();
-export const VERSION = '0.2.4';
+export const VERSION = '0.2.5';
 
 // ── Requests to the user's servers ────────────────────────────────────
 // The desktop app makes them itself; the web version goes through its small server.
 export class HttpError extends Error { constructor(msg, status) { super(msg); this.status = status; } }
-export async function http(url, { method = 'GET', headers = {}, body, raw = false } = {}) {
+export const serverLoading = createServerLoading(state => emit('server-loading', state));
+export async function http(url, options = {}) {
+  const owner = settings.groups.find(g => Object.values(g.servers || {}).some(s => s?.url && String(url).startsWith(s.url.replace(/\/$/, '') + '/')));
+  const done = serverLoading.begin(owner ? {id: owner.id, name: groups.nameOf(owner)} : null);
+  try { return await requestHttp(url, options); }
+  finally { done(); }
+}
+async function requestHttp(url, { method = 'GET', headers = {}, body, raw = false } = {}) {
   const opts = { method, headers: { Accept: 'application/json', ...headers } };
   if (body !== undefined) { opts.body = typeof body === 'string' ? body : JSON.stringify(body); if (!opts.headers['Content-Type']) opts.headers['Content-Type'] = 'application/json'; }
   let r;

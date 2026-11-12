@@ -144,8 +144,27 @@ fn media_keys(app: &AppHandle) {
     }
 }
 
+// WebKit's 100 KB download-buffer default can deadlock interleaved MKV streams
+// after their first frames. Set the bounded window before WebKit/GStreamer starts.
+#[cfg(target_os = "linux")]
+fn configure_media_runtime() {
+    const KEY: &str = "WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES";
+    if std::env::var_os(KEY).is_none() {
+        std::env::set_var(KEY, "33554432");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    {
+        configure_media_runtime();
+        // Packaging checks exercise the shipped binary's defaults without a GUI.
+        if std::env::args_os().any(|arg| arg == "--zenith-media-runtime") {
+            println!("{}", json!({"version": env!("CARGO_PKG_VERSION"), "mediaBufferBytes": std::env::var("WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES").ok().and_then(|v| v.parse::<u64>().ok())}));
+            return;
+        }
+    }
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| { let _ = window::action(app, "focus", None); }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

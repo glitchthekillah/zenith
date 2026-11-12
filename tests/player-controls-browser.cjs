@@ -1,0 +1,48 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),{chromium}=require('playwright');
+(async()=>{
+ const browser=await chromium.launch({headless:true,channel:'chrome'});
+ try{
+ const page=await browser.newPage({viewport:{width:1280,height:800}}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ const css=fs.readFileSync('app/css/app.css','utf8');
+ await page.setContent(`<style>${css}</style><body class="desktop"><header id="titlebar">Zenith</header><div id="player"></div></body>`);
+ const source=fs.readFileSync('app/js/player.js','utf8').replace(/^import .*$/gm,'').replace(/^export /gm,'');
+ await page.addScriptTag({content:`const $=(s,r=document)=>r.querySelector(s),esc=s=>String(s??''),icon=s=>'<svg class="i" viewBox="0 0 24 24"><path d="M8 4 L20 12 L8 20 Z"/></svg>',fmtTime=s=>String(s),settings={app:{discord:false},playback:{volume:1,rate:1}},save=()=>{},toast=()=>{},emit=()=>{},http=()=>{},groups={use(){}},desktop={win:async(a,x)=>({fullscreen:x??!document.body.classList.contains('fullscreen')}),on(){}},jf={report(){},reportProgress(){},img(){return ''}},applySubStyle=()=>{},attachNativeAudio=()=>({stop(){}}),audioMuted=v=>v.muted,setAudioMuted=(v,x)=>v.muted=x;\n${source}\nS={item:{Name:'Test movie',Type:'Movie',RunTimeTicks:1000000000,Chapters:[]},segments:[{type:'Intro',start:-2,end:12},{type:'Outro',start:88,end:120}],queue:[],offset:0};build();let paused=true;Object.defineProperty(S.v,'paused',{get:()=>paused});S.v.play=()=>{paused=false;S.v.dispatchEvent(new Event('play'));return Promise.resolve()};S.v.pause=()=>{paused=true;S.v.dispatchEvent(new Event('pause'))};window.testPlayer={spin,paintPlay,paintButtons,menu,prepareMenu:()=>S.pb={audio:[],subtitles:[]}};spin(false);paintPlay();paintButtons();`});
+ await page.locator('[data-p=fullscreen]').click();
+ assert.equal(await page.locator('#titlebar').isVisible(),false,'Fullscreen must hide desktop title bar');
+ await page.locator('.pl-resume').waitFor({state:'visible',timeout:1000});
+ await page.locator('.pl-resume').click();
+ assert.equal(await page.locator('video').evaluate(v=>v.paused),false,'Central button resumes');
+ await page.mouse.click(320,340);
+ assert.equal(await page.locator('video').evaluate(v=>v.paused),true,'Surface click pauses through overlays');
+ await page.mouse.click(320,340);
+ assert.equal(await page.locator('video').evaluate(v=>v.paused),false,'Surface click resumes');
+ await page.locator('.pl-btn.play').click();
+ assert.equal(await page.locator('video').evaluate(v=>v.paused),true,'Control toggles exactly once');
+ await page.evaluate(()=>testPlayer.spin(true));
+ assert.equal(await page.locator('.pl-resume').isVisible(),false,'Loading hides central resume button');
+ await page.evaluate(()=>testPlayer.spin(false));
+ assert.equal(await page.locator('.pl-resume').isVisible(),true,'Pause button returns after loading');
+ assert.equal(await page.locator('.pl-segments .seg').count(),2);
+ const bounds=await page.locator('.pl-segments .seg').evaluateAll(nodes=>nodes.map(n=>[parseFloat(n.style.left),parseFloat(n.style.width)]));
+ assert.ok(bounds.every(([left,width])=>left>=0&&left+width<=100),'Intervals stay inside timeline');
+ await page.locator('[data-p=fullscreen]').click();
+ assert.equal(await page.locator('#titlebar').isVisible(),true,'Title bar restored after fullscreen');
+ await page.locator('.pl-resume').click();
+ await page.mouse.dblclick(640,418);
+ assert.equal(await page.evaluate(()=>document.body.classList.contains('fullscreen')),true,'Center double click enters fullscreen despite resume overlay');
+ await page.locator('.pl-btn.play').click();
+ await page.setViewportSize({width:400,height:300});
+ await page.evaluate(()=>{testPlayer.prepareMenu();testPlayer.menu('settings')});
+ assert.equal(await page.locator('.pl-resume').isVisible(),false,'Paused menu hides resume overlay');
+ await page.locator('[data-rate="1.25"]').click();
+ assert.equal(await page.locator('.pl-resume').isVisible(),true,'Speed selection restores paused resume button');
+ await page.evaluate(()=>testPlayer.menu('settings')); 
+ await page.evaluate(()=>testPlayer.menu('settings'));
+ assert.equal(await page.locator('.pl-resume').isVisible(),true,'Closing menu restores paused resume button');
+ await page.setViewportSize({width:1280,height:800});
+ assert.deepEqual(errors,[]);
+ await page.screenshot({path:process.env.ZENITH_PLAYER_SCREENSHOT||'player-controls-check.png'});
+ console.log('PASS fullscreen, center resume, surface clicks, loading state, bounded segment markers; zero page errors');
+ }finally{await browser.close()}
+})().catch(e=>{console.error(e);process.exitCode=1});

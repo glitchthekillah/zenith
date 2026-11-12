@@ -40,6 +40,11 @@ const start=(file,env={})=>{const c=spawn(process.execPath,[file],{cwd:root,env:
   assert.equal(await page.evaluate(()=>window.__hello===document.querySelector('.hello')),true,'Home greeting was recreated during loading');
   assert.equal(await page.evaluate(()=>window.__search===document.querySelector('#top-search input')),true,'top search field was recreated during loading');
   console.log('Home greeting and top search DOM stay stable');
+  await page.locator('#server-loading').waitFor({state:'visible',timeout:1500});
+  assert.match(await page.locator('#server-loading').textContent(),/Loading [12] servers?/);
+  assert.equal(await page.locator('#server-loading i').evaluate(el=>getComputedStyle(el).animationName),'server-turn');
+  console.log('Subtle animated server-loading count stays visible while secondary servers are pending');
+
   for(const width of [1280,760,420]){await page.setViewportSize({width,height:820});await page.waitForTimeout(80);const bounds=await page.locator('.hello-resume').evaluate(el=>({overflow:el.scrollWidth>el.clientWidth+1||el.scrollHeight>el.clientHeight+1,offscreen:el.getBoundingClientRect().right>innerWidth}));assert.equal(bounds.overflow,false,'long Resume title clips at '+width);assert.equal(bounds.offscreen,false,'Resume action exceeds viewport at '+width);}
   await page.setViewportSize({width:1280,height:820});console.log('Long Resume title wraps without clipping at desktop and narrow widths');
   await page.locator('#hero .hero-slide:not([hidden]) .hero-art img').waitFor();

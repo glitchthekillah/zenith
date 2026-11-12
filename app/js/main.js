@@ -1,5 +1,5 @@
 // Starts the app: title bar, top bar, routes and global shortcuts.
-import { $, $$, esc, icon, render, go, current, settings, save, desktop, on, toast } from './core.js';
+import { $, $$, esc, icon, render, go, current, settings, save, desktop, on, toast, serverLoading } from './core.js';
 import * as jf from './jellyfin.js';
 import * as kv from './kavita.js';
 import * as rq from './requests.js';
@@ -34,6 +34,19 @@ if (desktop) {
   desktop.win('state').then((s) => s && paint(s));
 }
 
+// Pending server work lives outside the top bar, so updates never recreate navigation.
+let serverLoadingTimer;
+function paintServerLoading() {
+  const pill = $('#server-loading');
+  if (!pill) return;
+  const state = serverLoading.current();
+  const multiple = settings.groups.filter(g => Object.values(g.servers || {}).some(s => s?.url)).length > 1;
+  pill.hidden = !multiple || !state.count || $('#top').hidden;
+  $('[data-server-loading-text]', pill).textContent = `Loading ${state.count} server${state.count === 1 ? '' : 's'}`;
+  pill.title = state.names.join(', ');
+}
+on('server-loading', () => { clearTimeout(serverLoadingTimer); serverLoadingTimer = setTimeout(paintServerLoading, 150); });
+
 // Top bar
 const NAV = [['home', 'home', 'Home'], ['movies', 'film', 'Movies'], ['shows', 'tv', 'Shows'], ['read', 'book', 'Read'], ['request', 'plus', 'Request']];
 function topBar() {
@@ -47,6 +60,7 @@ function topBar() {
       <a class="icon-btn" href="#/settings" title="Settings">${icon('settings')}</a>
       <a class="me" href="#/settings" title="${esc(name)}" style="display:grid;place-items:center;text-decoration:none;overflow:hidden">${avatarHtml(name)}</a></div>`;
   paintNav();
+  paintServerLoading();
 }
 function paintNav() {
   const { name } = current();

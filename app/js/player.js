@@ -73,6 +73,7 @@ function build() {
   el.innerHTML = `<video playsinline preload="auto"></video>
   <div class="pl-subs"><div class="pl-subs-in"></div></div>
   <div class="pl-center"><div class="spinner"></div></div>
+  <button class="pl-resume" data-p="toggle" aria-label="Resume playback" title="Resume playback (Space)" hidden>${icon('play')}<span>Resume</span></button>
   <div class="pl-flash"></div>
   <div class="pl-ui">
     <div class="pl-top">
@@ -81,7 +82,7 @@ function build() {
       ${desktop ? `<button class="pl-btn" data-p="mini" title="Mini player, always on top (M)">${icon('pin')}</button>` : ''}
     </div>
     <div class="pl-bottom">
-      <div class="pl-seek"><div class="track"><div class="buf"></div><div class="done"></div><div class="knob"></div></div></div>
+      <div class="pl-seek"><div class="track"><div class="buf"></div><div class="done"></div><div class="knob"></div></div><div class="pl-segments" aria-hidden="true"></div></div>
       <div class="pl-row">
         <button class="pl-btn hide-mini" data-p="prev" title="Previous episode" hidden>${icon('prev')}</button>
         <button class="pl-btn hide-mini" data-p="back10" title="Back 10 seconds (Left)">${icon('skipb')}<span class="tag">10</span></button>
@@ -128,8 +129,7 @@ function build() {
   });
   v.addEventListener('enterpictureinpicture', () => $('[data-p=pip]', el).classList.add('on'));
   v.addEventListener('leavepictureinpicture', () => $('[data-p=pip]', el).classList.remove('on'));
-  v.addEventListener('click', () => { if (!document.body.classList.contains('mini')) toggle(); });
-  v.addEventListener('dblclick', () => fullscreen());
+  el.ondblclick = (e) => { if (!e.target.closest('.pl-top,.pl-bottom,.pl-menu,.pl-next,.pl-skip,.pl-error,input,a')) fullscreen(); };
   el.onclick = onClick;
   el.onmousemove = wake;
   el.ontouchstart = wake;
@@ -270,7 +270,16 @@ function paintBuffer() {
   const end = S.offset + v.buffered.end(v.buffered.length - 1), d = duration();
   $('.buf', root()).style.width = d ? `${Math.min(100, (end / d) * 100)}%` : '0';
 }
-function paintPlay() { const b = $('[data-p=toggle]', root()); if (b && S) b.innerHTML = icon(S.v.paused ? 'play' : 'pause'); }
+function paintPlay() {
+  if (!S) return;
+  const el = root(), paused = S.v.paused;
+  const b = $('.pl-btn.play', el);
+  if (b) { b.innerHTML = icon(paused ? 'play' : 'pause'); b.setAttribute('aria-label', paused ? 'Play' : 'Pause'); }
+  const resume = $('.pl-resume', el);
+  if (resume) resume.hidden = !paused || !!S.loading || !!$('.pl-error', el) || !!S.menu || S.v.ended;
+  el.classList.toggle('paused', paused);
+  if (paused) el.classList.remove('idle');
+}
 function paintVolume() { const v = S?.v; if (!v) return; $('.pl-vol input', root()).value = audioMuted(v) ? 0 : v.volume; $('[data-p=mute]', root()).innerHTML = icon(audioMuted(v) || v.volume === 0 ? 'mute' : 'volume'); }
 function paintButtons() {
   const el = root(), it = S.item;
@@ -284,9 +293,15 @@ function paintButtons() {
   const d = duration(), track = $('.track', el);
   track.querySelectorAll('.chap,.seg').forEach((x) => x.remove());
   for (const c of it.Chapters || []) { const t = c.StartPositionTicks / 1e7; if (t > 1 && d) track.insertAdjacentHTML('beforeend', `<i class="chap" style="left:${(t / d) * 100}%"></i>`); }
-  for (const s of S.segments) if (d) track.insertAdjacentHTML('beforeend', `<i class="seg" style="left:${(s.start / d) * 100}%;width:${((s.end - s.start) / d) * 100}%" title="${esc(s.type)}"></i>`);
+  paintPlay();
+  const markers = $('.pl-segments', el);
+  markers.replaceChildren();
+  for (const segment of S.segments) {
+    const start = Math.max(0, Math.min(d, segment.start)), end = Math.max(start, Math.min(d, segment.end));
+    if (d > 0 && end > start) markers.insertAdjacentHTML('beforeend', `<i class="seg" style="left:${(start / d) * 100}%;width:${((end - start) / d) * 100}%" title="${esc(segment.type)}"></i>`);
+  }
 }
-const spin = (on) => { const c = $('.pl-center', root()); if (c) c.hidden = !on; };
+const spin = (on) => { if (S) S.loading = on; const c = $('.pl-center', root()); if (c) c.hidden = !on; paintPlay(); };
 let flashT;
 function flash(text) { const f = $('.pl-flash', root()); if (!f) return; f.textContent = text; f.classList.add('show'); clearTimeout(flashT); flashT = setTimeout(() => f.classList.remove('show'), 900); }
 let idleT;
@@ -340,7 +355,7 @@ async function loadSegments(it) {
 }
 
 // Controls
-function toggle() { if (!S) return; if (S.v.paused) S.v.play(); else S.v.pause(); flash(S.v.paused ? 'Paused' : 'Playing'); }
+function toggle() { if (!S) return; if (S.v.paused) S.v.play().catch(fail); else S.v.pause(); wake(); }
 async function fullscreen(on) {
   if (desktop) { const r = await desktop.win('fullscreen', on); document.body.classList.toggle('fullscreen', r.fullscreen); return; }
   if (document.fullscreenElement) document.exitFullscreen(); else root().requestFullscreen?.();
@@ -390,8 +405,9 @@ function menu(kind) {
   const el = root();
   const old = $('.pl-menu', el);
   old?.remove();
-  if (S.menu === kind) { S.menu = null; return; }
+  if (S.menu === kind) { S.menu = null; paintPlay(); return; }
   S.menu = kind;
+  paintPlay();
   const pb = S.pb;
   let html = '';
   if (kind === 'subs') {
@@ -414,7 +430,12 @@ function menu(kind) {
   if (size) size.oninput = () => { settings.playback.subtitleSize = Number(size.value); save(); applySubStyle(root()); size.nextElementSibling.textContent = size.value + '%'; };
 }
 async function onClick(e) {
-  const b = e.target.closest('button'); if (!b || !S) return;
+  if (!S) return;
+  const b = e.target.closest('button');
+  if (!b) {
+    if (!document.body.classList.contains('mini') && !e.target.closest('.pl-top,.pl-bottom,.pl-menu,.pl-next,.pl-skip,.pl-error,input,a')) toggle();
+    return;
+  }
   e.stopPropagation();
   const p = b.dataset.p;
   if (p === 'close') return close();
@@ -447,7 +468,7 @@ async function onClick(e) {
     return load(pos());
   }
   if (b.dataset.q != null) { S.quality = 0; S.forceTranscode = false; S.menu = null; $('.pl-menu', root())?.remove(); toast(S.quality ? 'Changing quality...' : 'Back to the original file'); return load(pos()); }
-  if (b.dataset.rate) { S.v.playbackRate = Number(b.dataset.rate); settings.playback.rate = S.v.playbackRate; save(); S.menu = null; $('.pl-menu', root())?.remove(); flash(`${S.v.playbackRate}x`); return; }
+  if (b.dataset.rate) { S.v.playbackRate = Number(b.dataset.rate); settings.playback.rate = S.v.playbackRate; save(); S.menu = null; $('.pl-menu', root())?.remove(); flash(`${S.v.playbackRate}x`); paintPlay(); return; }
   if (b.dataset.ep) { const list = S.list; const i = list.findIndex((x) => x.Id === b.dataset.ep); await play(list[i], { start: 0, queue: list.slice(i + 1) }); S.list = list; }
 }
 async function fail(e) {
@@ -456,16 +477,15 @@ async function fail(e) {
   if (!session) return;
   const native = desktop?.info ? await desktop.info().catch(() => null) : null;
   if (S !== session || S.loadEpoch !== epoch) return;
-  const details = playbackFailure(e, native?.platform, S.pb?.source || S.item.MediaSources?.[0]);
-  // Codec repairs happen locally. Never switch this failure to a converted stream.
+  const source = S.pb?.source || S.item.MediaSources?.[0];
+  const details = playbackFailure(e, native?.platform, source);
+  // Keep failures local and actionable without requesting server conversion.
   const el = root();
   $('.pl-error', el)?.remove();
-  el.insertAdjacentHTML('beforeend', `<div class="pl-error"><div><h3>Playback problem</h3><p>${esc(details.message)}</p>${details.command ? `<pre>${esc(details.command)}</pre><button class="btn" data-copy-codecs>Copy install command</button>` : ''}<div class="acts" style="justify-content:center"><button class="btn gold" data-p="retry">Try again</button><button class="btn" data-p="close">Close</button></div></div></div>`);
+  const resume = $('.pl-resume', el); if (resume) resume.hidden = true;
+  el.insertAdjacentHTML('beforeend', `<div class="pl-error"><div><h3>Playback problem</h3><p>${esc(details.message)}</p><div class="acts" style="justify-content:center"><button class="btn gold" data-p="retry">Try again</button><button class="btn" data-p="close">Close</button></div></div></div>`);
   $('[data-p=retry]', el).onclick = () => { $('.pl-error', el).remove(); load(pos()); };
-  $('[data-copy-codecs]', el)?.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(details.command); toast('Copied the Linux codec install command.'); }
-    catch { toast('Select and copy the install command shown above.'); }
-  });
+
 }
 
 export async function close(quiet) {

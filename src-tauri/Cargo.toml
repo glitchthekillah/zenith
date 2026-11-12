@@ -1,6 +1,6 @@
 [package]
 name = "zenith"
-version = "0.2.4"
+version = "0.2.5"
 description = "Watch, read and request from your own Jellyfin, Kavita and Seerr servers."
 authors = ["glitch"]
 license = "MIT"

@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Existing release tag to build
         required: true
-        default: v0.2.4
+        default: v0.2.5
         type: string
 
 permissions:
@@ -55,6 +55,8 @@ jobs:
           dbus-run-session -- xvfb-run -a /usr/bin/python3 tests/linux-playback.py
       - name: Build AppImage and Debian package
         run: npx tauri build --bundles appimage,deb --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Verify shipped binary defaults and packaged audible playback
+        run: bash tests/check-linux-package.sh
       - name: Verify and collect Linux packages
         run: |
           mkdir linux-release
