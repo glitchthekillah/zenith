@@ -1,0 +1,63 @@
+name: Linux packaged media diagnostics
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  playback:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install diagnostic tools in disposable runner
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends python3-gi gir1.2-webkit2-4.1 xvfb xauth pulseaudio pulseaudio-utils dbus-x11 ffmpeg gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+      - name: Download the published AppImage and prepare original test files
+        run: |
+          curl -fL -o published.AppImage https://github.com/glitchthekillah/zenith/releases/download/v0.2.4/Zenith_0.2.4_amd64.AppImage
+          chmod +x published.AppImage
+          ./published.AppImage --appimage-extract >/dev/null
+          mkdir -p /tmp/zenith-media-fixtures
+          for audio in aac ac3; do
+            if [ "$audio" = ac3 ]; then ext=mkv; else ext=mp4; fi
+            ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=1920x1080:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 4 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a "$audio" -ac 6 /tmp/zenith-media-fixtures/video.$ext
+          done
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=zenith-test
+      - name: Native audible WebKit playback
+        id: native
+        continue-on-error: true
+        env:
+          ZENITH_SOURCE: ${{ github.workspace }}
+          ZENITH_FIXTURES: /tmp/zenith-media-fixtures
+          GST_DEBUG: '2'
+        run: dbus-run-session -- xvfb-run -a /usr/bin/python3 tests/linux-appimage-probe.py
+      - name: Published AppImage audible WebKit playback
+        id: bundled
+        continue-on-error: true
+        env:
+          ZENITH_SOURCE: ${{ github.workspace }}
+          ZENITH_FIXTURES: /tmp/zenith-media-fixtures
+          GST_DEBUG: '2'
+          GST_REGISTRY_1_0: /tmp/zenith-appimage-registry.bin
+        run: |
+          mv squashfs-root/usr/bin/zenith squashfs-root/usr/bin/zenith.real
+          printf '%s\n' '#!/bin/bash' 'unset PYTHONHOME PYTHONPATH' 'exec /usr/bin/python3 "$ZENITH_SOURCE/tests/linux-appimage-probe.py"' > squashfs-root/usr/bin/zenith
+          chmod +x squashfs-root/usr/bin/zenith
+          export APPDIR="$PWD/squashfs-root"
+          dbus-run-session -- xvfb-run -a "$APPDIR/AppRun"
+      - name: Require both runtime checks
+        env:
+          NATIVE: ${{ steps.native.outcome }}
+          BUNDLED: ${{ steps.bundled.outcome }}
+        run: |
+          echo "native=$NATIVE bundled=$BUNDLED"
+          test "$NATIVE" = success
+          test "$BUNDLED" = success
