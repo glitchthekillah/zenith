@@ -6,6 +6,18 @@
 const LEGACY: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
 const SHARED: &str = "WEBKIT_DMABUF_RENDERER_FORCE_SHM";
 
+#[cfg(target_os = "linux")]
+#[link(name = "X11")]
+unsafe extern "C" {
+    fn XInitThreads() -> std::ffi::c_int;
+}
+
+#[cfg(target_os = "linux")]
+pub fn x11_threads_initialized() -> bool {
+    static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *INITIALIZED.get_or_init(|| unsafe { XInitThreads() != 0 })
+}
+
 fn default_override(version: (u32, u32), explicitly_configured: bool) -> Option<&'static str> {
     if explicitly_configured { return None; }
     // The blanket legacy override regressed transparent overlay repainting
@@ -15,6 +27,11 @@ fn default_override(version: (u32, u32), explicitly_configured: bool) -> Option<
 
 #[cfg(target_os = "linux")]
 pub fn configure() -> (u32, u32, u32) {
+    // GStreamer GL and GTK can both access Xlib. Its thread support MUST be
+    // initialized before GTK/WebKit creates a display, including on hosts
+    // which choose XWayland. Calling it from a video plug-in is too late.
+    // https://gstreamer.freedesktop.org/documentation/gstreamer/running.html
+    assert!(x11_threads_initialized(), "Xlib thread initialization failed");
     // These accessors read library constants; they do not initialize GTK.
     let version = unsafe { (
         webkit2gtk_sys::webkit_get_major_version(),

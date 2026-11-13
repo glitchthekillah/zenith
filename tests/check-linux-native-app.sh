@@ -7,6 +7,17 @@ cd "$work"
 env -u APPIMAGE_EXTRACT_AND_RUN "$source_dir/$package" --appimage-extract >/dev/null
 export APPDIR="$work/squashfs-root"
 find "$APPDIR" -name 'libgstplay-1.0.so*' -print -quit | grep .
+application="$APPDIR/AppRun"
+if [[ "${ZENITH_PROBE_X11_THREADS:-0}" = 1 ]]; then
+  cc -shared -fPIC "$source_dir/tests/x11-thread-init-probe.c" -Wl,-z,defs -l:libX11.so.6 -o "$work/xthreads-probe.so"
+  cat >"$work/zenith-thread-probe" <<EOF
+#!/bin/sh
+export LD_PRELOAD="$work/xthreads-probe.so"
+exec "$APPDIR/AppRun" "\$@"
+EOF
+  chmod +x "$work/zenith-thread-probe"
+  application="$work/zenith-thread-probe"
+fi
 mkdir -p /tmp/zenith-media-fixtures
 ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=blue:size=640x360:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 60 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a ac3 -ac 6 /tmp/zenith-media-fixtures/video.mkv
 python3 "$source_dir/tests/linux-realistic-fixtures.py"
@@ -27,9 +38,9 @@ recorder=$!
 trap 'kill "$server" "$recorder" 2>/dev/null || true' EXIT
 export PULSE_SINK=zenith-test LIBGL_ALWAYS_SOFTWARE=1
 if [ "${ZENITH_WAYLAND_TEST:-0}" = 1 ]; then
-  dbus-run-session -- python3 "$source_dir/tests/native-video-webdriver.py" "$APPDIR/AppRun"
+  dbus-run-session -- python3 "$source_dir/tests/native-video-webdriver.py" "$application"
 else
-  dbus-run-session -- xvfb-run -a python3 "$source_dir/tests/native-video-webdriver.py" "$APPDIR/AppRun"
+  dbus-run-session -- xvfb-run -a python3 "$source_dir/tests/native-video-webdriver.py" "$application"
 fi
 kill "$recorder"; wait "$recorder" || true
 python3 - <<'PY'

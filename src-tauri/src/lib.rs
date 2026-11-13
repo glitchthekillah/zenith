@@ -164,7 +164,7 @@ pub fn run() {
         let webkit_version = configure_media_runtime();
         // Packaging checks exercise the shipped binary's defaults without a GUI.
         if std::env::args_os().any(|arg| arg == "--zenith-media-runtime") {
-            println!("{}", json!({"version": env!("CARGO_PKG_VERSION"), "mediaBufferBytes": std::env::var("WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES").ok().and_then(|v| v.parse::<u64>().ok()), "webkitVersion": [webkit_version.0,webkit_version.1,webkit_version.2], "rendererOverrides": {"disableDmaBuf": std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").ok(), "forceSharedMemory": std::env::var("WEBKIT_DMABUF_RENDERER_FORCE_SHM").ok()}}));
+            println!("{}", json!({"version": env!("CARGO_PKG_VERSION"), "mediaBufferBytes": std::env::var("WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES").ok().and_then(|v| v.parse::<u64>().ok()), "webkitVersion": [webkit_version.0,webkit_version.1,webkit_version.2], "x11ThreadsInitialized": linux_renderer::x11_threads_initialized(), "rendererOverrides": {"disableDmaBuf": std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").ok(), "forceSharedMemory": std::env::var("WEBKIT_DMABUF_RENDERER_FORCE_SHM").ok()}}));
             return;
         }
     }
