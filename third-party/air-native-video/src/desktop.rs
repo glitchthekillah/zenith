@@ -321,7 +321,7 @@ mod linux_surface {
     }
 
     struct SurfaceHost {
-        fixed: gtk::Fixed,
+        fixed: gtk::Layout,
     }
 
     pub fn ensure_host<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
@@ -359,25 +359,30 @@ mod linux_surface {
             let overlay = gtk::Overlay::new();
             overlay.set_hexpand(true);
             overlay.set_vexpand(true);
-            let opaque_base = gtk::DrawingArea::new();
-            opaque_base.set_hexpand(true);
-            opaque_base.set_vexpand(true);
-            opaque_base.connect_draw(|_, context| {
-                context.set_source_rgb(0.0, 0.0, 0.0);
-                let _ = context.paint();
-                // This widget is the compositor-safe opaque floor beneath the
-                // native video and transparent WebView. Letting GTK continue
-                // into its default DrawingArea handler can clear our paint back
-                // to transparent on Wayland compositors such as COSMIC.
-                gtk::glib::Propagation::Stop
-            });
-            let fixed = gtk::Fixed::new();
+            // Video is the main child, not a second overlay window competing
+            // with the transparent WebView. GtkLayout owns the video drawing
+            // window and, unlike GtkFixed, does not turn a movie's requested
+            // dimensions into the top-level window's minimum size.
+            // https://docs.gtk.org/gtk3/class.Overlay.html
+            let fixed = gtk::Layout::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
             fixed.set_hexpand(true);
             fixed.set_vexpand(true);
+            fixed.style_context().add_class("tauri-video-window");
+            fixed.style_context().add_provider(
+                &background_style, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+            fixed.connect_draw(|_, context| {
+                // Paint the opaque floor before GTK propagates drawing to the
+                // native video child. Stopping here would erase that child.
+                let _ = context.save();
+                context.set_source_rgb(0.0, 0.0, 0.0);
+                let _ = context.paint();
+                let _ = context.restore();
+                gtk::glib::Propagation::Proceed
+            });
             child.set_hexpand(true);
             child.set_vexpand(true);
-            overlay.add(&opaque_base);
-            overlay.add_overlay(&fixed);
+            overlay.add(&fixed);
             overlay.add_overlay(&child);
             gtk_window.add(&overlay);
             gtk_window.show_all();
@@ -393,8 +398,8 @@ mod linux_surface {
         width: f64,
         height: f64,
     ) -> Result<()> {
-        // Preserve negative positions. GtkFixed clips children against the
-        // window, which is exactly what we need when an HTML anchor scrolls
+        // Preserve negative positions. GtkLayout clips children against the
+        // viewport, which is exactly what we need when an HTML anchor scrolls
         // partially above or left of the viewport. Clamping here pins the
         // native video to the edge while the DOM continues moving.
         let x = x.round() as i32;

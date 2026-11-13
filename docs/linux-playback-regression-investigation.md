@@ -65,3 +65,11 @@ Run 43494111831 reproduced eight unchanged class records for eight real X11 poin
 That baseline run also intermittently stalled in the earlier sparse-PGS seek phase on Wayland, before it reached the mouse test. This is an existing playback limitation, not evidence about the mouse fix; do not claim it is resolved by RC3. No pipeline, decoder, buffering or renderer selection changes are part of RC3. Software-rendered pointer acceptance remains distinct from the friend's physical Intel GPU validation.
 
 No stable release, updater manifest, Windows executable or previously published changelog has been modified during this investigation. RC1 remains a prerelease with known regressions.
+
+## RC5 native layer arrangement
+
+RC4 still clips the lower controls on the reported Intel GPU. Renderer transport alone is insufficient. GTK documents a single main child beneath overlay children. The prior host instead puts both native video and WebView into separate overlay windows above an unrelated DrawingArea. RC5 makes the video stage the main child and the WebView the only overlay. GtkLayout provides a native child drawing window and zero preferred dimensions, so the current video size cannot prevent shrinking the top-level window. The same stage paints the black floor, then propagates drawing to its video child; the existing pipeline, decoding, buffer and renderer policy remain unchanged.
+
+This tests a composition hypothesis, not a confirmed physical-GPU fix. The reported manual RC4 clipping is the baseline failure. Existing real-pointer control-pixel checks, resizing/fullscreen, menu pixels, original-file seek and audio checks must still pass on the actual packages. Software-rendered CI cannot establish acceptance on the reported Intel GPU.
+
+References: https://docs.gtk.org/gtk3/class.Overlay.html ; https://docs.gtk.org/gtk3/method.Container.propagate_draw.html ; https://github.com/GNOME/gtk/blob/gtk-3-24/gtk/gtklayout.c ; https://github.com/tauri-apps/tauri/issues/9220 . The last report concerns direct WGPU surface sharing, not this exact GTK-widget pipeline, so it is supporting context rather than proof.
