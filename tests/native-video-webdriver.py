@@ -66,12 +66,12 @@ try:
       document.body.innerHTML='<div style="position:fixed;inset:0;background:black"><video id="native-test" style="position:absolute;left:40px;top:80px;width:640px;height:360px"></video><button id="native-pause" data-air-video-controls style="position:absolute;left:50px;top:100px">Pause</button></div>';
       const v=document.getElementById('native-test'),abort=new AbortController();
       v.muted=true;
-      const controller=await openNativeVideo(v,{url:'http://127.0.0.1:18488/delayed.mkv',controls:[document.getElementById('native-pause')],signal:abort.signal});
+      const controller=await openNativeVideo(v,{url:'http://127.0.0.1:18488/__INITIAL_FILE__',controls:[document.getElementById('native-pause')],signal:abort.signal});
       window.nativeTest={v,controller,abort,errors:[]};controller.on('error',e=>nativeTest.errors.push(String(e.detail)));
       document.getElementById('native-pause').onclick=()=>v.paused?v.play():v.pause();
       await waitNativeVideo(v,abort.signal);
       return {width:v.videoWidth,duration:v.duration};
-    ''')
+    '''.replace('__INITIAL_FILE__','video.mkv' if os.environ.get('ZENITH_FOCUS_CONTROLS')=='1' else 'delayed.mkv'))
     def until(expression,timeout=20):
         deadline=time.monotonic()+timeout
         while time.monotonic()<deadline:
