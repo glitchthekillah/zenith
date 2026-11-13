@@ -174,6 +174,15 @@ try:
     js('document.querySelector("[data-p=settings]").click()')
     until('!document.querySelector(".pl-menu")',timeout=4)
     print('PASS real pointer wakes controls and opens settings through GTK',flush=True)
+    # Continuous input must not keep rebuilding the native aperture while its
+    # bounds and the controls' visibility are unchanged. The old wake handler
+    # generated a no-op ancestor class mutation for every mouse move.
+    async_js('await new Promise(r=>setTimeout(r,100));window.pointerNoops=0;window.pointerObserver=new MutationObserver(records=>{for(const r of records)if(r.oldValue===r.target.getAttribute(r.attributeName))pointerNoops++});pointerObserver.observe(document.querySelector("#player"),{attributes:true,attributeOldValue:true,attributeFilter:["class"]});return true;')
+    for step in range(8):
+        request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':80,'origin':'viewport','x':350+step*18,'y':270+step*8}]}]})
+    noops=async_js('await new Promise(r=>requestAnimationFrame(r));pointerObserver.disconnect();return pointerNoops;')
+    assert noops==0,('Mouse movement repeatedly invalidated unchanged video ancestors',noops)
+    print('PASS continuous real mouse input does not churn the native video aperture',flush=True)
     for target in [18,4,23,9]:
         began=time.monotonic()
         js('document.querySelector("#player video").currentTime='+str(target))
