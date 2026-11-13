@@ -740,10 +740,9 @@ mod linux_gstreamer {
             ensure_session(&player.session_key, &payload.session_key)?;
             match payload.action.as_str() {
                 "play" => {
-                    if player.ended {
-                        player.play.seek(gst::ClockTime::ZERO);
-                        player.ended = false;
-                    }
+                    // GstPlay restarts EOS itself. Issuing a second seek here
+                    // races its replay seek and can leave preroll stalled.
+                    player.ended = false;
                     player.desired_playing = true;
                     player.play.play();
                 }

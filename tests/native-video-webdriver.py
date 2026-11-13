@@ -98,6 +98,8 @@ try:
             until('nativeTest.v.currentTime>'+str(target+.35))
         print('PASS repeated seeking and restoring the already selected subtitle',flush=True)
         async_js('await nativeTest.controller.setPlaybackRate(1.5);return true;')
+        pending=js('return nativeTest.v.currentTime')
+        until('nativeTest.v.currentTime>'+str(pending+.4),timeout=15)
         before=js('return nativeTest.v.currentTime');time.sleep(1.5)
         assert js('return nativeTest.v.currentTime')-before>1.5
         assert js('return nativeTest.v.playbackRate')==1.5
