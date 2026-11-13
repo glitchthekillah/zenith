@@ -1120,6 +1120,7 @@ var NativeSurfaceVideoController = class extends EventTarget {
   #lastLayout;
   #pendingSeek;
   #polling = false;
+  #waiting = false;
   #destroyed = false;
   #volume = 1;
   #rate = 1;
@@ -1302,7 +1303,7 @@ var NativeSurfaceVideoController = class extends EventTarget {
     this.#stopPolling();
     this.#startPolling();
     this.element.dispatchEvent(new Event("play"));
-    this.element.dispatchEvent(new Event("playing"));
+    if (this.#snapshot) this.#publishBuffering(this.#snapshot, true);
   }
   pause() {
     this.#requestedPlaying = false;
@@ -1538,8 +1539,8 @@ var NativeSurfaceVideoController = class extends EventTarget {
       }
       if (previous?.playing !== snapshot.playing) {
         this.element.dispatchEvent(new Event(snapshot.playing ? "play" : "pause"));
-        if (snapshot.playing) this.element.dispatchEvent(new Event("playing"));
       }
+      this.#publishBuffering(snapshot, previous?.playing !== snapshot.playing && snapshot.playing);
       const isEnded = isNativeEnded(snapshot);
       if (!this.#endedNotified && isEnded) {
         this.#endedNotified = true;
@@ -1552,12 +1553,22 @@ var NativeSurfaceVideoController = class extends EventTarget {
       this.#polling = false;
     }
   }
+  #publishBuffering(snapshot, playStarted = false) {
+    const waiting = snapshot.playing && snapshot.buffering === true;
+    if (waiting !== this.#waiting) {
+      this.#waiting = waiting;
+      if (waiting) this.element.dispatchEvent(new Event("waiting"));
+      else if (snapshot.playing) this.element.dispatchEvent(new Event("playing"));
+    } else if (playStarted && snapshot.playing && !waiting) {
+      this.element.dispatchEvent(new Event("playing"));
+    }
+  }
   #publishMetadata() {
     if (this.#metadataReady || !this.#snapshot?.videoWidth) return;
     this.#metadataReady = true;
     this.element.dispatchEvent(new Event("loadedmetadata"));
     this.element.dispatchEvent(new Event("durationchange"));
-    this.element.dispatchEvent(new Event("canplay"));
+    if (!this.#snapshot.buffering) this.element.dispatchEvent(new Event("canplay"));
   }
   #updateMedia(snapshot) {
     const live = snapshot.live ?? false;

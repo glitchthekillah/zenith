@@ -36,6 +36,7 @@ export interface NativeAttachVideoOptions extends AttachVideoOptions {
 }
 
 export interface NativePlaybackSnapshot {
+  buffering?: boolean
   ended?: boolean
   durationSeconds: number
   currentTimeSeconds: number

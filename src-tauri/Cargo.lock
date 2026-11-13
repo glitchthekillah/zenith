@@ -1674,6 +1674,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "gstreamer-play"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3355c2c37bfd824cbd974bf0b8c004d71ca3755f825065957bc16356d79e6e34"
+dependencies = [
+ "glib 0.22.10",
+ "gstreamer",
+ "gstreamer-play-sys",
+ "gstreamer-video",
+ "libc",
+]
+
+[[package]]
+name = "gstreamer-play-sys"
+version = "0.25.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4545c131079772ebbb3343761bf6f83672b2cf9dbae575a667f4a41a1fd26786"
+dependencies = [
+ "glib-sys 0.22.9",
+ "gobject-sys 0.22.9",
+ "gstreamer-sys",
+ "gstreamer-video-sys",
+ "libc",
+ "system-deps 9.0.1",
+]
+
+[[package]]
 name = "gstreamer-sys"
 version = "0.25.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4577,6 +4604,7 @@ dependencies = [
  "gio 0.22.10",
  "gstreamer",
  "gstreamer-app",
+ "gstreamer-play",
  "gstreamer-video",
  "gtk",
  "jni 0.21.1",
@@ -6143,7 +6171,7 @@ dependencies = [
 
 [[package]]
 name = "zenith"
-version = "0.2.7-rc.1"
+version = "0.2.7-rc.2"
 dependencies = [
  "base64 0.22.1",
  "futures-util",

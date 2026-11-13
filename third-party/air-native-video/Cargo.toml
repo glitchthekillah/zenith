@@ -43,6 +43,7 @@ gstreamer-runtime = [
   "dep:gstreamer",
   "dep:gstreamer-app",
   "dep:gstreamer-video",
+  "dep:gstreamer-play",
 ]
 mpv-runtime = ["dep:libc", "dep:libmpv2"]
 
@@ -60,6 +61,7 @@ jni = "0.21.1"
 gio = { version = "0.22", optional = true }
 gstreamer = { version = "0.25.3", optional = true }
 gstreamer-video = { version = "0.25.3", optional = true }
+gstreamer-play = { version = "0.25", optional = true }
 gtk = "0.18.2"
 libc = { version = "0.2", optional = true }
 libmpv2 = { version = "5.0.3", default-features = true, optional = true }

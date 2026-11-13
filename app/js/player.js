@@ -110,8 +110,8 @@ function build() {
   // Events
   v.addEventListener('timeupdate', tick);
   v.addEventListener('progress', paintBuffer);
-  v.addEventListener('waiting', () => spin(true));
-  v.addEventListener('playing', () => { spin(false); paintPlay(); });
+  v.addEventListener('waiting', () => { spin(true); wake(); });
+  v.addEventListener('playing', () => { spin(false); paintPlay(); wake(); });
   v.addEventListener('canplay', () => spin(false));
   v.addEventListener('pause', () => { paintPlay(); report(true); discord(); });
   v.addEventListener('play', () => { paintPlay(); discord(); });
@@ -351,7 +351,7 @@ const spin = (on) => { if (S) S.loading = on; const c = $('.pl-center', root());
 let flashT;
 function flash(text) { const f = $('.pl-flash', root()); if (!f) return; f.textContent = text; f.classList.add('show'); clearTimeout(flashT); flashT = setTimeout(() => f.classList.remove('show'), 900); }
 let idleT;
-function wake() { const el = root(); el.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => { if (S && !S.v.paused && !S.menu) el.classList.add('idle'); }, 2600); }
+function wake() { const el = root(); el.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => { if (S && !S.v.paused && !S.loading && !S.menu) el.classList.add('idle'); }, 2600); }
 
 // Seeking
 function seekTo(t) {

@@ -3,7 +3,7 @@ function subject(){const c={DOMException,AbortController,EventTarget,Event,setTi
 test('native attachment receives only the original URL, controls and bounded buffer settings',async()=>{
  const calls=[],video={},controls={},abort=new AbortController(),controller={destroy:async()=>{}};
  const result=await subject().openNativeVideo(video,{url:'https://media.test/Videos/item/stream?static=true',controls,signal:abort.signal},async(v,o)=>{calls.push({v,o});return controller});
- assert.equal(result,controller);assert.equal(calls[0].v,video);assert.equal(calls[0].o.source.uri,'https://media.test/Videos/item/stream?static=true');assert.equal(calls[0].o.controlRegions,controls);assert.equal(calls[0].o.playback.engine,'gstreamer');assert.equal(calls[0].o.playback.linux.buffer.maxBytes,64*1024*1024);
+ assert.equal(result,controller);assert.equal(calls[0].v,video);assert.equal(calls[0].o.source.uri,'https://media.test/Videos/item/stream?static=true');assert.equal(calls[0].o.controlRegions,controls);assert.equal(calls[0].o.playback.engine,'gstreamer');assert.equal(calls[0].o.playback.linux.buffer.maxBytes,64*1024*1024);assert.equal(calls[0].o.playback.linux.buffer.maxSeconds,3);
 });
 test('a late native attachment is destroyed when its owning load has been cancelled',async()=>{
  const abort=new AbortController();let release,destroyed=0;const ready=new Promise(r=>release=r);

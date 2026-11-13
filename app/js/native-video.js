@@ -6,7 +6,7 @@ export async function openNativeVideo(video, {url, controls, signal}, attach) {
   signal?.throwIfAborted();
   const controller = await factory(video, {
     source: {uri: url}, autoplay: true, signal, controlRegions: controls, suspendWhenHidden: false,
-    playback: {engine: 'gstreamer', linux: {buffer: {maxSeconds: 15, maxBytes: 64 * 1024 * 1024}}},
+    playback: {engine: 'gstreamer', linux: {buffer: {maxSeconds: 3, maxBytes: 64 * 1024 * 1024}}},
   });
   if (signal?.aborted) {
     await controller.destroy();

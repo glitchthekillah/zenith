@@ -427,7 +427,6 @@ mod linux_surface {
 mod linux_gstreamer {
     use std::{
         cell::RefCell,
-        collections::BTreeSet,
         str::FromStr,
         sync::{Arc, OnceLock},
         time::Instant,
@@ -438,6 +437,8 @@ mod linux_gstreamer {
     use gst::prelude::ObjectExt as GstObjectExt;
     use gst::prelude::*;
     use gstreamer as gst;
+    use gstreamer_play as gst_play;
+    use gst_play::prelude::*;
     use gtk::prelude::*;
     use parking_lot::RwLock;
     use tauri::{AppHandle, Runtime};
@@ -459,6 +460,8 @@ mod linux_gstreamer {
     struct NativePlayer {
         session_key: String,
         pipeline: gst::Element,
+        play: gst_play::Play,
+        play_state: gst_play::PlayState,
         gtk_sink: gst::Element,
         widget: gtk::Widget,
         source: Arc<RwLock<NativeOpenRequest>>,
@@ -473,7 +476,6 @@ mod linux_gstreamer {
         last_sample_at: Instant,
         measured_fps: f64,
         tracks: Vec<NativeTrackInfo>,
-        selected_streams: BTreeSet<String>,
     }
 
     pub fn open<R: Runtime>(
@@ -569,19 +571,11 @@ mod linux_gstreamer {
         let target_buffer_bytes = payload
             .target_buffer_bytes
             .map(|value| value.clamp(4 * 1024 * 1024, i32::MAX as u64));
-        let mut pipeline_builder = gst::ElementFactory::make("playbin3")
-            .property("uri", &payload.uri)
-            .property("video-sink", &gl_sink);
-        if let Some(seconds) = buffer_duration_seconds {
-            pipeline_builder =
-                pipeline_builder.property("buffer-duration", (seconds * 1_000_000_000.0) as i64);
-        }
-        if let Some(bytes) = target_buffer_bytes {
-            pipeline_builder = pipeline_builder.property("buffer-size", bytes as i32);
-        }
-        let pipeline = pipeline_builder
-            .build()
-            .map_err(|error| Error::Pipeline(format!("playbin3 is unavailable: {error}")))?;
+        // GstPlay owns the streaming worker, seek serialization, buffering and
+        // clock recovery. Never execute a flushing seek on GTK's UI thread.
+        let renderer = gst_play::PlayVideoOverlayVideoRenderer::with_sink(&gl_sink);
+        let play = gst_play::Play::new(Some(renderer));
+        let pipeline = play.pipeline();
 
         let source_for_setup = Arc::clone(&source);
         pipeline.connect("source-setup", false, move |values| {
@@ -609,6 +603,8 @@ mod linux_gstreamer {
         let mut player = NativePlayer {
             session_key: String::new(),
             pipeline,
+            play,
+            play_state: gst_play::PlayState::Stopped,
             gtk_sink,
             widget,
             source,
@@ -623,7 +619,6 @@ mod linux_gstreamer {
             last_sample_at: Instant::now(),
             measured_fps: 0.0,
             tracks: vec![],
-            selected_streams: BTreeSet::new(),
         };
         load_source(&mut player, payload)?;
         Ok(player)
@@ -677,29 +672,10 @@ mod linux_gstreamer {
     }
 
     fn load_source(player: &mut NativePlayer, payload: &NativeOpenRequest) -> Result<()> {
-        // Keep the GTK GL sink and widget alive across media changes. Destroying
-        // and immediately recreating gtkglsink can invalidate GDK's active EGL
-        // draw context on Wayland compositors.
-        player
-            .pipeline
-            .set_state(gst::State::Ready)
-            .map_err(|error| Error::Pipeline(error.to_string()))?;
-        let (transition, current, pending) =
-            player.pipeline.state(Some(gst::ClockTime::from_seconds(5)));
-        transition.map_err(|error| {
-            Error::Pipeline(format!(
-                "failed to park native pipeline before source change: {error}"
-            ))
-        })?;
-        if current != gst::State::Ready {
-            return Err(Error::Pipeline(format!(
-                "native pipeline did not reach READY before source change (current: {current:?}, pending: {pending:?})"
-            )));
-        }
-        if let Some(bus) = player.pipeline.bus() {
-            while bus.pop().is_some() {}
-        }
-
+        // Reuse the GTK sink; GstPlay schedules stop/source replacement on its
+        // own main context instead of blocking GTK waiting for READY.
+        player.play.stop();
+        while player.play.message_bus().pop().is_some() {}
         *player.source.write() = payload.clone();
         let buffer_duration_seconds = payload
             .max_buffer_ms
@@ -707,7 +683,7 @@ mod linux_gstreamer {
         let target_buffer_bytes = payload
             .target_buffer_bytes
             .map(|value| value.clamp(4 * 1024 * 1024, i32::MAX as u64));
-        player.pipeline.set_property("uri", &payload.uri);
+        player.play.set_uri(Some(&payload.uri));
         player.pipeline.set_property(
             "buffer-duration",
             buffer_duration_seconds
@@ -718,14 +694,8 @@ mod linux_gstreamer {
             "buffer-size",
             target_buffer_bytes.map(|bytes| bytes as i32).unwrap_or(-1),
         );
-        player.pipeline.set_property(
-            "volume",
-            if payload.muted {
-                0.0
-            } else {
-                payload.volume.clamp(0.0, 1.0)
-            },
-        );
+        player.play.set_volume(payload.volume.clamp(0.0, 1.0));
+        player.play.set_mute(payload.muted);
         player.gtk_sink.set_property("force-aspect-ratio", true);
         super::linux_surface::place_widget(
             &player.widget,
@@ -746,17 +716,9 @@ mod linux_gstreamer {
         player.last_sample_at = Instant::now();
         player.measured_fps = 0.0;
         player.tracks.clear();
-        player.selected_streams.clear();
+        player.play_state = gst_play::PlayState::Stopped;
 
-        let state = if payload.autoplay {
-            gst::State::Playing
-        } else {
-            gst::State::Paused
-        };
-        player
-            .pipeline
-            .set_state(state)
-            .map_err(|error| Error::Pipeline(error.to_string()))?;
+        if payload.autoplay { player.play.play(); } else { player.play.pause(); }
         player.session_key.clone_from(&payload.session_key);
         Ok(())
     }
@@ -766,21 +728,6 @@ mod linux_gstreamer {
             .property::<gst::Structure>("stats")
             .get::<u64>("rendered")
             .unwrap_or(0)
-    }
-
-    fn playback_timeline(pipeline: &gst::Element, duration: f64) -> (bool, bool, f64, f64) {
-        let mut latency = gst::query::Latency::new();
-        let live = duration <= 0.0 || (pipeline.query(latency.query_mut()) && latency.result().0);
-        let mut seeking = gst::query::Seeking::new(gst::Format::Time);
-        if !pipeline.query(seeking.query_mut()) {
-            return (live, !live, 0.0, duration);
-        }
-        let (seekable, start, end) = seeking.result();
-        let seconds = |value: gst::GenericFormattedValue| match value {
-            gst::GenericFormattedValue::Time(Some(time)) => time.seconds_f64(),
-            _ => 0.0,
-        };
-        (live, seekable, seconds(start), seconds(end))
     }
 
     pub fn control(payload: NativeControlRequest) -> Result<NativePlaybackSnapshot> {
@@ -793,45 +740,33 @@ mod linux_gstreamer {
             match payload.action.as_str() {
                 "play" => {
                     if player.ended {
-                        player.pipeline.seek(player.playback_rate, gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
-                            gst::SeekType::Set, gst::ClockTime::ZERO, gst::SeekType::None, gst::ClockTime::NONE)
-                            .map_err(|error| Error::Pipeline(error.to_string()))?;
+                        player.play.seek(gst::ClockTime::ZERO);
                         player.ended = false;
                     }
                     player.desired_playing = true;
-                    player
-                        .pipeline
-                        .set_state(gst::State::Playing)
-                        .map_err(|error| Error::Pipeline(error.to_string()))?;
+                    player.play.play();
                 }
                 "pause" => {
                     player.desired_playing = false;
-                    player
-                        .pipeline
-                        .set_state(gst::State::Paused)
-                        .map_err(|error| Error::Pipeline(error.to_string()))?;
+                    player.play.pause();
                 }
                 "seek" | "rate" => {
-                    let rate = if payload.action == "rate" { payload.value } else { player.playback_rate };
-                    if !rate.is_finite() || !(0.5..=2.0).contains(&rate) {
-                        return Err(Error::InvalidRequest("playback rate must be between 0.5 and 2".into()));
-                    }
-                    let position = if payload.action == "seek" {
-                        gst::ClockTime::from_nseconds((payload.value.max(0.0) * 1e9) as u64)
+                    if payload.action == "rate" {
+                        if !payload.value.is_finite() || !(0.5..=2.0).contains(&payload.value) {
+                            return Err(Error::InvalidRequest("playback rate must be between 0.5 and 2".into()));
+                        }
+                        player.playback_rate = payload.value;
+                        player.play.set_rate(payload.value);
                     } else {
-                        player.pipeline.query_position::<gst::ClockTime>().unwrap_or(gst::ClockTime::ZERO)
-                    };
-                    player.pipeline.seek(rate, gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
-                        gst::SeekType::Set, position, gst::SeekType::None, gst::ClockTime::NONE)
-                        .map_err(|error| Error::Pipeline(error.to_string()))?;
-                    player.playback_rate = rate;
+                        if !payload.value.is_finite() || payload.value < 0.0 {
+                            return Err(Error::InvalidRequest("seek position must be finite and non-negative".into()));
+                        }
+                        player.play.seek(gst::ClockTime::from_nseconds((payload.value * 1e9) as u64));
+                    }
+                    player.play_state = gst_play::PlayState::Buffering;
                     player.ended = false;
                 }
-                "volume" => {
-                    player
-                        .pipeline
-                        .set_property("volume", payload.value.clamp(0.0, 1.0));
-                }
+                "volume" => player.play.set_volume(payload.value.clamp(0.0, 1.0)),
                 "fit" => {
                     player.gtk_sink.set_property("force-aspect-ratio", true);
                 }
@@ -914,14 +849,11 @@ mod linux_gstreamer {
             let Some(player) = slot.as_mut() else {
                 return Ok(());
             };
-            player
-                .pipeline
-                .set_state(gst::State::Ready)
-                .map_err(|error| Error::Pipeline(error.to_string()))?;
+            player.play.stop();
             player.widget.hide();
             player.session_key.clear();
             player.tracks.clear();
-            player.selected_streams.clear();
+            player.play_state = gst_play::PlayState::Stopped;
             player.error = None;
             Ok(())
         })
@@ -939,18 +871,13 @@ mod linux_gstreamer {
 
     fn snapshot(player: &mut NativePlayer) -> Result<NativePlaybackSnapshot> {
         drain_bus(player)?;
-        let position = player
-            .pipeline
-            .query_position::<gst::ClockTime>()
-            .map(|time| time.seconds_f64())
-            .unwrap_or(0.0);
-        let duration = player
-            .pipeline
-            .query_duration::<gst::ClockTime>()
-            .map(|time| time.seconds_f64())
-            .unwrap_or(0.0);
-        let (live, seekable, seekable_start, seekable_end) =
-            playback_timeline(&player.pipeline, duration);
+        let position = player.play.position().map(|time| time.seconds_f64()).unwrap_or(0.0);
+        let duration = player.play.duration().map(|time| time.seconds_f64()).unwrap_or(0.0);
+        let info = player.play.media_info();
+        let live = info.as_ref().is_some_and(|info| info.is_live());
+        let seekable = info.as_ref().map_or(!live, |info| info.is_seekable());
+        let seekable_start = 0.0;
+        let seekable_end = duration;
         let buffered = position
             + player.buffer_duration_seconds.unwrap_or(0.0) * player.buffering_percent as f64
                 / 100.0;
@@ -995,6 +922,7 @@ mod linux_gstreamer {
             .unwrap_or((0, 0));
         let playing = player.desired_playing;
         Ok(NativePlaybackSnapshot {
+            buffering: Some(playing && player.play_state != gst_play::PlayState::Playing),
             ended: Some(player.ended),
             duration_seconds: duration,
             current_time_seconds: position,
@@ -1019,143 +947,67 @@ mod linux_gstreamer {
     }
 
     fn drain_bus(player: &mut NativePlayer) -> Result<()> {
-        let Some(bus) = player.pipeline.bus() else {
-            return Ok(());
-        };
+        let bus = player.play.message_bus();
         while let Some(message) = bus.pop() {
-            match message.view() {
-                gst::MessageView::Eos(_) => {
+            let Ok(message) = gst_play::PlayMessage::parse(&message) else { continue };
+            match message {
+                gst_play::PlayMessage::EndOfStream(_) => {
                     player.ended = true;
                     player.desired_playing = false;
-                    player.pipeline.set_state(gst::State::Paused)
-                        .map_err(|error| Error::Pipeline(error.to_string()))?;
                 }
-                gst::MessageView::Buffering(buffering) => {
-                    player.buffering_percent = buffering.percent();
-                    let target = if player.desired_playing && player.buffering_percent >= 100 {
-                        gst::State::Playing
-                    } else {
-                        gst::State::Paused
-                    };
-                    player
-                        .pipeline
-                        .set_state(target)
-                        .map_err(|error| Error::Pipeline(error.to_string()))?;
-                }
-                gst::MessageView::StreamCollection(message) => {
-                    let collection = message.stream_collection();
-                    player.tracks.clear();
-                    for index in 0..collection.size() {
-                        let Some(stream) = collection.stream(index) else {
-                            continue;
-                        };
-                        let stream_type = stream.stream_type();
-                        let kind = if stream_type.contains(gst::StreamType::VIDEO) {
-                            TrackKind::Video
-                        } else if stream_type.contains(gst::StreamType::AUDIO) {
-                            TrackKind::Audio
-                        } else if stream_type.contains(gst::StreamType::TEXT) {
-                            TrackKind::Subtitle
-                        } else {
-                            continue;
-                        };
-                        let id = stream
-                            .stream_id()
-                            .map(|value| value.to_string())
-                            .unwrap_or_else(|| format!("native-{index}"));
-                        let tags = stream.tags();
-                        let language = tags
-                            .as_ref()
-                            .and_then(|tags| tags.get::<gst::tags::LanguageCode>())
-                            .map(|tag| tag.get().to_string())
-                            .unwrap_or_default();
-                        let label = tags
-                            .as_ref()
-                            .and_then(|tags| tags.get::<gst::tags::Title>())
-                            .map(|tag| tag.get().to_string())
-                            .filter(|value| !value.is_empty())
-                            .unwrap_or_else(|| {
-                                if language.is_empty() {
-                                    format!("Track {}", index + 1)
-                                } else {
-                                    language.to_uppercase()
-                                }
-                            });
-                        let codec = stream
-                            .caps()
-                            .and_then(|caps| {
-                                caps.structure(0).map(|value| value.name().to_string())
-                            })
-                            .unwrap_or_default();
-                        player.tracks.push(NativeTrackInfo {
-                            id: id.clone(),
-                            index: index as i32,
-                            kind,
-                            language,
-                            label,
-                            codec,
-                            selected: player.selected_streams.contains(&id),
-                        });
-                    }
-                    if std::env::var_os("TAURI_VIDEO_TELEMETRY").is_some() {
-                        eprintln!("video streams discovered: {}", player.tracks.len());
-                    }
-                }
-                gst::MessageView::StreamsSelected(message) => {
-                    player.selected_streams = message
-                        .streams()
-                        .filter_map(|stream| stream.stream_id().map(|id| id.to_string()))
-                        .collect();
-                    for track in &mut player.tracks {
-                        track.selected = player.selected_streams.contains(&track.id);
-                    }
-                    if std::env::var_os("TAURI_VIDEO_TELEMETRY").is_some() {
-                        eprintln!("video streams selected: {}", player.selected_streams.len());
-                    }
-                }
-                gst::MessageView::Error(error) => {
-                    let message =
-                        format!("{}: {}", error.error(), error.debug().unwrap_or_default());
-                    player.error = Some(message.clone());
-                    return Err(Error::Pipeline(message));
-                }
+                gst_play::PlayMessage::StateChanged(state) => player.play_state = state.state(),
+                gst_play::PlayMessage::Buffering(buffering) => player.buffering_percent = buffering.percent() as i32,
+                gst_play::PlayMessage::Error(error) => player.error = Some(error.error().to_string()),
                 _ => {}
             }
         }
-        if let Some(error) = player.error.clone() {
-            return Err(Error::Pipeline(error));
-        }
+        refresh_tracks(player);
+        if let Some(error) = player.error.clone() { return Err(Error::Pipeline(error)); }
         Ok(())
     }
 
+    fn refresh_tracks(player: &mut NativePlayer) {
+        let Some(info) = player.play.media_info() else { return };
+        let selected = [
+            player.play.current_video_track().map(|track| (TrackKind::Video, track.index())),
+            player.play.current_audio_track().map(|track| (TrackKind::Audio, track.index())),
+            player.play.current_subtitle_track().map(|track| (TrackKind::Subtitle, track.index())),
+        ];
+        player.tracks = info.stream_list().iter().filter_map(|stream| {
+            let kind = match stream.stream_type().to_ascii_lowercase().as_str() {
+                "video" => TrackKind::Video, "audio" => TrackKind::Audio,
+                "subtitle" | "text" => TrackKind::Subtitle, _ => return None,
+            };
+            let tags = stream.tags();
+            let language = tags.as_ref().and_then(|tags| tags.get::<gst::tags::LanguageCode>()).map(|tag| tag.get().to_owned()).unwrap_or_default();
+            let label = tags.as_ref().and_then(|tags| tags.get::<gst::tags::Title>()).map(|tag| tag.get().to_owned()).unwrap_or_else(|| language.clone());
+            Some(NativeTrackInfo { id: format!("{kind:?}:{}", stream.index()), index: stream.index(), kind, language, label,
+                codec: stream.codec().map(|codec| codec.to_string()).unwrap_or_default(),
+                selected: selected.iter().flatten().any(|(selected_kind, index)| *selected_kind == kind && *index == stream.index()),
+            })
+        }).enumerate().map(|(index, mut track)| { track.index = index as i32; track }).collect();
+    }
+
     fn select_stream(player: &mut NativePlayer, index: i32, enabled: bool) -> Result<()> {
-        let (kind, id) = player
-            .tracks
-            .iter()
-            .find(|track| track.index == index)
-            .map(|track| (track.kind, track.id.clone()))
+        let track = player.tracks.iter().find(|track| track.index == index)
             .ok_or_else(|| Error::InvalidRequest(format!("unknown native track index {index}")))?;
-        player.selected_streams.retain(|id| {
-            player
-                .tracks
-                .iter()
-                .find(|item| &item.id == id)
-                .is_some_and(|item| item.kind != kind)
-        });
-        if enabled {
-            player.selected_streams.insert(id);
-        }
-        let ids: Vec<&str> = player.selected_streams.iter().map(String::as_str).collect();
-        if !player
-            .pipeline
-            .send_event(gst::event::SelectStreams::new(ids))
-        {
-            return Err(Error::Pipeline("decoder rejected track selection".into()));
-        }
-        for item in &mut player.tracks {
-            item.selected = player.selected_streams.contains(&item.id);
-        }
-        Ok(())
+        let native_index: i32 = track.id.rsplit(':').next().and_then(|index| index.parse().ok())
+            .ok_or_else(|| Error::InvalidRequest("invalid native track identity".into()))?;
+        let selected = match track.kind {
+            TrackKind::Audio => {
+                player.play.set_audio_track_enabled(enabled);
+                if enabled { player.play.set_audio_track(native_index) } else { Ok(()) }
+            }
+            TrackKind::Subtitle => {
+                player.play.set_subtitle_track_enabled(enabled);
+                if enabled { player.play.set_subtitle_track(native_index) } else { Ok(()) }
+            }
+            TrackKind::Video => {
+                player.play.set_video_track_enabled(enabled);
+                if enabled { player.play.set_video_track(native_index) } else { Ok(()) }
+            }
+        };
+        selected.map_err(|error| Error::Pipeline(error.to_string()))
     }
 }
 
@@ -1824,6 +1676,7 @@ mod linux_mpv {
         let hwdec =
             property::<String>(&player.mpv, "hwdec-current").unwrap_or_else(|| "software".into());
         Ok(NativePlaybackSnapshot {
+            buffering: None,
             ended: None,
             duration_seconds: duration,
             current_time_seconds: position,
