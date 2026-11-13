@@ -26,6 +26,9 @@ try:
     for _ in range(100):
         if js('return !!window.__TAURI__?.core && !!document.body'):break
         time.sleep(.1)
+    if os.environ.get('ZENITH_SHORT_BUFFER') == '1':
+        js('const original=window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);window.__TAURI_INTERNALS__.invoke=(cmd,args,options)=>{if(cmd==="plugin:video|native_open")args.payload.maxBufferMs=3000;return original(cmd,args,options)}')
+        print('DIAGNOSTIC overriding only the native buffer duration: 15s -> 3s',flush=True)
     async_js('''
       const {openNativeVideo,waitNativeVideo}=await import(new URL('js/native-video.js',document.baseURI));
       document.body.innerHTML='<div style="position:fixed;inset:0;background:black"><video id="native-test" style="position:absolute;left:40px;top:80px;width:640px;height:360px"></video><button id="native-pause" data-air-video-controls style="position:absolute;left:50px;top:100px">Pause</button></div>';

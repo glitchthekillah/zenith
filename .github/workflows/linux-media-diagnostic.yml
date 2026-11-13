@@ -14,6 +14,10 @@ on:
         description: Isolate real controls and normal video seeks from the sparse subtitle test
         type: boolean
         default: false
+      short_buffer:
+        description: Compare a three-second buffer against the shipped fifteen seconds
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -50,6 +54,7 @@ jobs:
           DISPLAY_SYSTEM: ${{ matrix.display }}
           ZENITH_THROTTLED_TEST: ${{ inputs.constrained_network && '1' || '0' }}
           ZENITH_FOCUS_CONTROLS: ${{ inputs.focus_controls && '1' || '0' }}
+          ZENITH_SHORT_BUFFER: ${{ inputs.short_buffer && '1' || '0' }}
           TAURI_VIDEO_TELEMETRY: '1'
           GST_DEBUG: 'playbin3:4,uridecodebin3:4,queue2:4,decodebin3:4'
         run: |
