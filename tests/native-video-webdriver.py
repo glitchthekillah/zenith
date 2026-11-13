@@ -183,9 +183,19 @@ try:
     # generated a no-op ancestor class mutation for every mouse move.
     async_js('await new Promise(r=>setTimeout(r,100));window.pointerNoops=0;window.pointerObserver=new MutationObserver(records=>{for(const r of records)if(r.oldValue===r.target.getAttribute(r.attributeName))pointerNoops++});pointerObserver.observe(document.querySelector("#player"),{attributes:true,attributeOldValue:true,attributeFilter:["class"]});return true;')
     if not os.environ.get('ZENITH_WAYLAND_TEST'):
+        from PIL import Image
         pointer_window=request('GET',base+'/window/rect')
         pointer_video=js('const r=document.querySelector("#player video").getBoundingClientRect();return {x:r.x+r.width*.55,y:r.y+r.height*.4}')
         pointer_pixel='p{'+str(int(pointer_window['x']+pointer_video['x']))+','+str(int(pointer_window['y']+pointer_video['y']))+'}'
+        # Compare opaque icon strokes across the control row against a settled
+        # reference, not just a point in the movie. The reported fault cuts a
+        # horizontal transparent strip through the icons during cursor motion.
+        row=js('const r=document.querySelector(".pl-row").getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.min(205,Math.floor(r.width)),height:Math.floor(r.height)}')
+        pathlib.Path('/tmp/native-app-control-reference.png').write_bytes(base64.b64decode(request('GET',base+'/screenshot')))
+        row_box=(row['x'],row['y'],row['x']+row['width'],row['y']+row['height'])
+        reference=Image.open('/tmp/native-app-control-reference.png').convert('RGBA').crop(row_box)
+        opaque=[i for i,pixel in enumerate(reference.getdata()) if min(pixel[:3])>220 and pixel[3]>240]
+        assert len(opaque)>50,('Control reference has too few opaque icon pixels',len(opaque))
     for step in range(8):
         request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':80,'origin':'viewport','x':350+step*18,'y':270+step*8}]}]})
         if not os.environ.get('ZENITH_WAYLAND_TEST'):
@@ -194,6 +204,10 @@ try:
             channels=subprocess.check_output(['convert',image,'-format',f'%[fx:{pointer_pixel}.r],%[fx:{pointer_pixel}.g],%[fx:{pointer_pixel}.b]','info:'],text=True)
             red,green,blue=map(float,channels.split(','))
             assert blue>.8 and red<.15 and green<.15,('Mouse movement replaced the movie with interface pixels',step,channels)
+            actual_box=(int(pointer_window['x'])+row_box[0],int(pointer_window['y'])+row_box[1],int(pointer_window['x'])+row_box[2],int(pointer_window['y'])+row_box[3])
+            actual=list(Image.open(image).convert('RGB').crop(actual_box).getdata())
+            missing=sum(min(actual[i])<160 for i in opaque)/len(opaque)
+            assert missing<.10,('Mouse movement erased control-bar pixels',step,missing)
     noops=async_js('await new Promise(r=>requestAnimationFrame(r));pointerObserver.disconnect();return pointerNoops;')
     assert noops==0,('Mouse movement repeatedly invalidated unchanged video ancestors',noops)
     print('PASS continuous real mouse input does not churn the native video aperture',flush=True)

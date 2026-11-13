@@ -44,6 +44,18 @@ In that comparison, the Wayland run measured seeks to 4/9 seconds at 11.48/13.11
 
 ## Release boundary
 
+## RC4 transparent control-strip follow-up
+
+The user's friend reports that RC3 still briefly erases a horizontal strip through control icons while the mouse moves. RC3 removed a demonstrated source of redundant DOM invalidation; it did not fix the physical-GPU rendering artifact.
+
+The renderer policy incorrectly restricted FORCE_SHM to WebKit 2.54+. Inspection of the exact 2.50.4 AppImage source and WebKit 2.44.0 shows that both add SharedMemory transport before the FORCE_SHM early return and only add Hardware transport afterward. Therefore FORCE_SHM=1 is a supported way to keep compositing active while avoiding driver-imported interface buffers on those versions too. This is distinct from DISABLE_DMABUF, which returns with an empty transport and caused earlier overlay regressions.
+
+RC4 selects shared interface frames from verified WebKit 2.44 onward, preserves explicit overrides, and leaves native video decoding, sink, buffer settings and strict original-file playback unchanged. The new older-version policy test failed before the correction; all four policy tests and 103 Node tests pass afterward. The packaged startup check verifies the actual override.
+
+The X11 mouse test now compares settled, opaque control-icon strokes with the root-window picture after each pointer movement, alongside the existing movie-pixel check. This detects erased horizontal control strips rather than sampling only the video area. Its scope is software-rendered X11 at the test scale; physical GPU and display-scale confirmation remain separate. The reported brief startup hesitations are not yet isolated in this environment, so no buffering changes are made on speculation.
+
+Sources: https://github.com/WebKit/WebKit/blob/webkitgtk-2.50.4/Source/WebKit/UIProcess/gtk/AcceleratedBackingStore.cpp and https://github.com/WebKit/WebKit/blob/webkitgtk-2.44.0/Source/WebKit/UIProcess/gtk/AcceleratedBackingStoreDMABuf.cpp .
+
 ## RC3 mouse-movement follow-up
 
 RC2 improved actual Oppenheimer playback on the user's friend's machine, but moving the mouse still exposed the underlying interface and disrupted controls. `wake()` removed the already-absent idle class on every mouse move. DOMTokenList emits these unchanged attribute records; the native compositor treated them as ancestor background/layout changes and reconstructed the aperture and occluder masks.

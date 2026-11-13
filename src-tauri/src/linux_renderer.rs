@@ -1,5 +1,7 @@
 //! Version-aware compatibility policy for transparent WebKitGTK video controls.
-//! Based on the documented Tauri workaround and Handy's merged 2.54 correction:
+//! Keep compositing enabled while avoiding driver-dependent DMA-BUF imports.
+//! Verified against WebKitGTK 2.44 and the bundled 2.50.4 source:
+//! https://github.com/WebKit/WebKit/blob/webkitgtk-2.50.4/Source/WebKit/UIProcess/gtk/AcceleratedBackingStore.cpp
 //! https://v2.tauri.app/develop/debug/linux-graphics/
 //! https://github.com/cjpais/Handy/pull/2360
 
@@ -20,9 +22,10 @@ pub fn x11_threads_initialized() -> bool {
 
 fn default_override(version: (u32, u32), explicitly_configured: bool) -> Option<&'static str> {
     if explicitly_configured { return None; }
-    // The blanket legacy override regressed transparent overlay repainting
-    // and UI responsiveness. Older WebKit keeps its accelerated default.
-    if version >= (2, 54) { Some(SHARED) } else { None }
+    // FORCE_SHM preserves the compositor; DISABLE_DMABUF would turn it off.
+    // The shared-frame path exists before 2.54, including the AppImage's
+    // 2.50.4. Leaving those versions on driver-imported buffers missed them.
+    if version >= (2, 44) { Some(SHARED) } else { None }
 }
 
 #[cfg(target_os = "linux")]
@@ -57,9 +60,14 @@ pub fn configure() -> (u32, u32, u32) {
 mod tests {
     use super::*;
     #[test]
-    fn old_webkit_keeps_its_accelerated_default() {
-        assert_eq!(default_override((2, 44), false), None);
-        assert_eq!(default_override((2, 50), false), None);
+    fn versions_without_verified_shared_transport_keep_their_default() {
+        assert_eq!(default_override((2, 42), false), None);
+    }
+    #[test]
+    fn bundled_and_older_supported_webkit_keep_compositing_with_shared_frames() {
+        assert_eq!(default_override((2, 44), false), Some(SHARED));
+        assert_eq!(default_override((2, 46), false), Some(SHARED));
+        assert_eq!(default_override((2, 50), false), Some(SHARED));
     }
     #[test]
     fn damage_tracking_keeps_the_compositor_and_full_shared_frames() {
