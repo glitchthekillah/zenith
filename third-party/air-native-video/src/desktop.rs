@@ -863,29 +863,10 @@ mod linux_gstreamer {
             player.media_ready = false;
             player.play_state = gst_play::PlayState::Stopped;
             player.error = None;
-            // stop() is asynchronous. Unmapping GtkGLArea while the worker is
-            // still streaming can invalidate its active GL context. Hide only
-            // after GstPlay acknowledges STOPPED (pipeline already in READY).
-            // A replacement session cancels this pending hide automatically.
-            let deadline = Instant::now() + std::time::Duration::from_secs(10);
-            gtk::glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
-                PLAYER.with(|slot| {
-                    let slot = slot.borrow();
-                    let Some(player) = slot.as_ref() else { return gtk::glib::ControlFlow::Break };
-                    if !player.session_key.is_empty() { return gtk::glib::ControlFlow::Break; }
-                    let bus = player.play.message_bus();
-                    while let Some(message) = bus.pop() {
-                        if let Ok(gst_play::PlayMessage::StateChanged(state)) = gst_play::PlayMessage::parse(&message) {
-                            if state.state() == gst_play::PlayState::Stopped {
-                                player.widget.hide();
-                                return gtk::glib::ControlFlow::Break;
-                            }
-                        }
-                    }
-                    if Instant::now() >= deadline { gtk::glib::ControlFlow::Break }
-                    else { gtk::glib::ControlFlow::Continue }
-                })
-            });
+            // Keep the retained GL widget realized across title changes.
+            // GstPlay stops on its worker; unmapping the widget here races its
+            // streaming/render callbacks. Releasing the CSS aperture restores
+            // the opaque WebView above it, so no video is exposed when closed.
             Ok(())
         })
     }

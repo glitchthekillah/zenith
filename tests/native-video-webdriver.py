@@ -125,6 +125,11 @@ try:
         print('PASS natural end-of-file event and replay',flush=True)
     async_js('nativeTest.abort.abort();await nativeTest.controller.destroy();return true;')
     until('!document.documentElement.classList.contains("tauri-native-video")',timeout=5)
+    if not os.environ.get('ZENITH_WAYLAND_TEST'):
+        subprocess.run(['import','-window','root','/tmp/native-app-closed.png'],check=True)
+        channels=subprocess.check_output(['convert','/tmp/native-app-closed.png','-format',f'%[fx:{point}.r],%[fx:{point}.g],%[fx:{point}.b]','info:'],text=True)
+        assert max(map(float,channels.split(',')))<.05,('Closed video leaked through restored opaque UI',channels)
+        print('PASS closing restores opaque UI above the retained video widget',flush=True)
     print('PASS fullscreen, resize, controls and native surface cleanup',flush=True)
     metadata=async_js('''
       const core=await import(new URL('js/core.js',document.baseURI));
