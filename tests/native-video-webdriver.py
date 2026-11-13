@@ -3,7 +3,11 @@ import array,base64,json,os,pathlib,re,subprocess,sys,time,urllib.request
 
 def request(method,path,data=None):
     body=None if data is None else json.dumps(data).encode()
-    req=urllib.request.Request('http://127.0.0.1:4444'+path,data=body,method=method,headers={'Content-Type':'application/json'})
+    # Tauri only translates launch capabilities. Exercise subsequent standard
+    # commands directly against WebKitWebDriver, without the intermediary's
+    # pooled HTTP connection (which can reset independently of the app).
+    port=4445 if path.startswith('/session/') else 4444
+    req=urllib.request.Request('http://127.0.0.1:'+str(port)+path,data=body,method=method,headers={'Content-Type':'application/json'})
     with urllib.request.urlopen(req,timeout=100) as response: result=json.load(response)
     value=result.get('value',result)
     if isinstance(value,dict) and value.get('error'):raise RuntimeError(value)

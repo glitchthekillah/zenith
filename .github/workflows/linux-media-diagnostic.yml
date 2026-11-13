@@ -53,7 +53,6 @@ jobs:
         run: |
           # Disposable runner only: capture the native fault, not another
           # ambiguous WebDriver disconnect. Fixtures contain no private media.
-          ulimit -c unlimited
           sudo sysctl -w kernel.core_pattern=/tmp/zenith-core.%e.%p
           [[ "$CANDIDATE_RUN" =~ ^[0-9]+$ ]]
           gh run download "$CANDIDATE_RUN" --repo glitchthekillah/zenith --name zenith-linux-x64 --dir candidate
@@ -72,6 +71,7 @@ jobs:
           TAURI_VIDEO_TELEMETRY: '1'
           GST_DEBUG: 'playbin3:4,uridecodebin3:4,queue2:4,decodebin3:4'
         run: |
+          ulimit -c unlimited
           export XDG_RUNTIME_DIR=$(mktemp -d /tmp/zenith-runtime.XXXXXXXX)
           chmod 700 "$XDG_RUNTIME_DIR"
           pulseaudio --start --exit-idle-time=-1
