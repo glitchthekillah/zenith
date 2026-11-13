@@ -115,5 +115,6 @@ jobs:
             /tmp/native-app-menu.png
             /tmp/native-app-player-frame-*.png
             /tmp/native-app-codec-*.png
+            /tmp/native-app-pointer-*.png
             /tmp/zenith-core.*.backtrace.txt
           retention-days: 7

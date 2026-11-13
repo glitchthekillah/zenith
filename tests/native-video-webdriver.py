@@ -162,6 +162,10 @@ try:
     assert metadata['width']==1280 and abs(metadata['duration']-30)<.15,('New title accepted previous-source metadata',metadata)
     assert metadata['events'] and all(event['width']==1280 and abs(event['duration']-30)<.15 for event in metadata['events']),('loadedmetadata exposed the previous source',metadata)
     until('document.querySelector("#player video").currentTime>2')
+    # A solid original video makes a stale library/UI frame distinguishable
+    # from real movie content while exercising the actual player controls.
+    async_js('await playerUiTest.player.close(true);playerUiTest.source.Id="blue";await playerUiTest.player.play({Id:"fixture",Name:"Pointer repaint fixture",Type:"Movie",RunTimeTicks:600000000,MediaSources:[playerUiTest.source],UserData:{}},{start:0});return true;')
+    until('document.querySelector("#player video").currentTime>1 && document.querySelector("#player video").videoWidth===640')
     # Exercise the GTK/WebKit input route rather than dispatching DOM events.
     # An overlay can pass DOM-only checks while swallowing real mouse input.
     time.sleep(3.2)
@@ -178,11 +182,23 @@ try:
     # bounds and the controls' visibility are unchanged. The old wake handler
     # generated a no-op ancestor class mutation for every mouse move.
     async_js('await new Promise(r=>setTimeout(r,100));window.pointerNoops=0;window.pointerObserver=new MutationObserver(records=>{for(const r of records)if(r.oldValue===r.target.getAttribute(r.attributeName))pointerNoops++});pointerObserver.observe(document.querySelector("#player"),{attributes:true,attributeOldValue:true,attributeFilter:["class"]});return true;')
+    if not os.environ.get('ZENITH_WAYLAND_TEST'):
+        pointer_window=request('GET',base+'/window/rect')
+        pointer_video=js('const r=document.querySelector("#player video").getBoundingClientRect();return {x:r.x+r.width*.55,y:r.y+r.height*.4}')
+        pointer_pixel=f'p{{{int(pointer_window["x"]+pointer_video["x"])},{int(pointer_window["y"]+pointer_video["y"])}}'
     for step in range(8):
         request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':80,'origin':'viewport','x':350+step*18,'y':270+step*8}]}]})
+        if not os.environ.get('ZENITH_WAYLAND_TEST'):
+            image=f'/tmp/native-app-pointer-{step}.png'
+            subprocess.run(['import','-window','root',image],check=True)
+            channels=subprocess.check_output(['convert',image,'-format',f'%[fx:{pointer_pixel}.r],%[fx:{pointer_pixel}.g],%[fx:{pointer_pixel}.b]','info:'],text=True)
+            red,green,blue=map(float,channels.split(','))
+            assert blue>.8 and red<.15 and green<.15,('Mouse movement replaced the movie with interface pixels',step,channels)
     noops=async_js('await new Promise(r=>requestAnimationFrame(r));pointerObserver.disconnect();return pointerNoops;')
     assert noops==0,('Mouse movement repeatedly invalidated unchanged video ancestors',noops)
     print('PASS continuous real mouse input does not churn the native video aperture',flush=True)
+    async_js('await playerUiTest.player.close(true);playerUiTest.source.Id="fixture";await playerUiTest.player.play({Id:"fixture",Name:"Moving video fixture",Type:"Movie",RunTimeTicks:300000000,MediaSources:[playerUiTest.source],UserData:{}},{start:0});return true;')
+    until('document.querySelector("#player video").currentTime>1 && document.querySelector("#player video").videoWidth===1280')
     for target in [18,4,23,9]:
         began=time.monotonic()
         js('document.querySelector("#player video").currentTime='+str(target))

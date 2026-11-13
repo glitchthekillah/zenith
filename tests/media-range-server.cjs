@@ -9,7 +9,7 @@ function createServer(directory){
   let name;try{name=decodeURIComponent(new URL(req.url,'http://localhost').pathname)}catch{res.writeHead(400).end();return}
   if(name==='/Videos/fixture/stream'){
    const source=new URL(req.url,'http://localhost').searchParams.get('MediaSourceId');
-   name=['hevc10','vp9','av1'].includes(source)?'/'+source+'.mkv':fs.existsSync(path.join(root,'moving.mkv'))?'/moving.mkv':'/delayed.mkv';
+   name=source==='blue'?'/video.mkv':['hevc10','vp9','av1'].includes(source)?'/'+source+'.mkv':fs.existsSync(path.join(root,'moving.mkv'))?'/moving.mkv':'/delayed.mkv';
   }
   const file=path.resolve(root,'.'+name);
   if(!file.startsWith(root+path.sep)||!['GET','HEAD'].includes(req.method)){res.writeHead(403).end();return}
