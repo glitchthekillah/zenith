@@ -185,7 +185,7 @@ try:
     if not os.environ.get('ZENITH_WAYLAND_TEST'):
         pointer_window=request('GET',base+'/window/rect')
         pointer_video=js('const r=document.querySelector("#player video").getBoundingClientRect();return {x:r.x+r.width*.55,y:r.y+r.height*.4}')
-        pointer_pixel=f'p{{{int(pointer_window["x"]+pointer_video["x"])},{int(pointer_window["y"]+pointer_video["y"])}}'
+        pointer_pixel='p{'+str(int(pointer_window['x']+pointer_video['x']))+','+str(int(pointer_window['y']+pointer_video['y']))+'}'
     for step in range(8):
         request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':80,'origin':'viewport','x':350+step*18,'y':270+step*8}]}]})
         if not os.environ.get('ZENITH_WAYLAND_TEST'):
