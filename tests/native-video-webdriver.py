@@ -26,8 +26,20 @@ try:
     for _ in range(100):
         if js('return !!window.__TAURI__?.core && !!document.body'):break
         time.sleep(.1)
+    js('''
+      window.nativeObservations=[];
+      const original=window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);
+      window.__TAURI_INTERNALS__.invoke=async(cmd,args,options)=>{
+        if(cmd==='plugin:video|native_open' && '''+json.dumps(os.environ.get('ZENITH_SHORT_BUFFER') == '1')+''')args.payload.maxBufferMs=3000;
+        const result=await original(cmd,args,options);
+        if(cmd==='plugin:video|native_stats'){
+          window.nativeObservations.push({time:result.currentTimeSeconds,frames:result.presentedFrames,buffered:result.bufferedSeconds,bytes:result.encodedBytesBuffered,playing:result.playing});
+          if(window.nativeObservations.length>40)window.nativeObservations.shift();
+        }
+        return result;
+      };
+    ''')
     if os.environ.get('ZENITH_SHORT_BUFFER') == '1':
-        js('const original=window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);window.__TAURI_INTERNALS__.invoke=(cmd,args,options)=>{if(cmd==="plugin:video|native_open")args.payload.maxBufferMs=3000;return original(cmd,args,options)}')
         print('DIAGNOSTIC overriding only the native buffer duration: 15s -> 3s',flush=True)
     async_js('''
       const {openNativeVideo,waitNativeVideo}=await import(new URL('js/native-video.js',document.baseURI));
@@ -44,7 +56,7 @@ try:
         while time.monotonic()<deadline:
             if js('return '+expression):return
             time.sleep(.2)
-        raise AssertionError('Timed out: '+expression+'; '+json.dumps(js('return {time:nativeTest.v.currentTime,width:nativeTest.v.videoWidth,errors:nativeTest.errors}')))
+        raise AssertionError('Timed out: '+expression+'; '+json.dumps(js('const v=document.querySelector("#player video")||nativeTest.v;return {time:v.currentTime,width:v.videoWidth,errors:nativeTest.errors,native:window.nativeObservations.slice(-12)}')))
     until('nativeTest.v.currentTime>2 && nativeTest.controller.playbackQuality().presentedFrames>10')
     print('PASS shipped native surface decoded frames',js('return nativeTest.controller.playbackQuality()'),flush=True)
     js('document.getElementById("native-pause").click()');time.sleep(.5)

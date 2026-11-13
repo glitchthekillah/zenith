@@ -31,9 +31,10 @@ function createServer(directory){
   (async()=>{
    await new Promise(resolve=>setTimeout(resolve,delayMs));
    const began=performance.now();let sent=0;
+   res.once('close',()=>console.log(JSON.stringify({file:path.basename(file),start,end,sent,elapsedMs:Math.round(performance.now()-began)})));
    for await(const chunk of stream){
     if(res.destroyed)break;
-    if(!res.write(chunk))await new Promise(resolve=>{res.once('drain',resolve);res.once('close',resolve)});
+    if(!res.write(chunk))await new Promise(resolve=>{const done=()=>{res.off('drain',done);res.off('close',done);resolve()};res.once('drain',done);res.once('close',done)});
     sent+=chunk.length;
     if(bytesPerSecond){const wait=sent*1000/bytesPerSecond-(performance.now()-began);if(wait>0)await new Promise(resolve=>setTimeout(resolve,wait))}
    }
