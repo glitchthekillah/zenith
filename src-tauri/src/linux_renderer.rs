@@ -32,6 +32,12 @@ pub fn configure() -> (u32, u32, u32) {
     // which choose XWayland. Calling it from a video plug-in is too late.
     // https://gstreamer.freedesktop.org/documentation/gstreamer/running.html
     assert!(x11_threads_initialized(), "Xlib thread initialization failed");
+    // GstPlay 1.20 otherwise defaults to the legacy playbin2 controller.
+    // The packaged sparse-PGS seek regression passes with its supported
+    // playbin3 path. Select it before any GStreamer worker is started.
+    if std::env::var_os("GST_PLAY_USE_PLAYBIN3").is_none() {
+        std::env::set_var("GST_PLAY_USE_PLAYBIN3", "1");
+    }
     // These accessors read library constants; they do not initialize GTK.
     let version = unsafe { (
         webkit2gtk_sys::webkit_get_major_version(),

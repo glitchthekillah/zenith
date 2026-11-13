@@ -14,9 +14,9 @@ trap cleanup EXIT
 cd "$work"
 env -u APPIMAGE_EXTRACT_AND_RUN "$source_dir/$package" --appimage-extract >/dev/null
 export APPDIR="$work/squashfs-root"
-runtime=$(env -u WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES -u WEBKIT_DISABLE_DMABUF_RENDERER -u WEBKIT_DMABUF_RENDERER_FORCE_SHM -u WEBKIT_DISABLE_COMPOSITING_MODE "$APPDIR/AppRun" --zenith-media-runtime)
+runtime=$(env -u GST_PLAY_USE_PLAYBIN3 -u WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES -u WEBKIT_DISABLE_DMABUF_RENDERER -u WEBKIT_DMABUF_RENDERER_FORCE_SHM -u WEBKIT_DISABLE_COMPOSITING_MODE "$APPDIR/AppRun" --zenith-media-runtime)
 echo "Shipped runtime: $runtime"
-export WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES=$(node -e 'const x=JSON.parse(process.argv[1]);if(x.x11ThreadsInitialized!==true||x.mediaBufferBytes!==33554432||x.version!==process.argv[2])process.exit(1);console.log(x.mediaBufferBytes)' "$runtime" "$(node -p "require('$source_dir/package.json').version")")
+export WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES=$(node -e 'const x=JSON.parse(process.argv[1]);if(x.gstPlayUsePlaybin3!=="1"||x.x11ThreadsInitialized!==true||x.mediaBufferBytes!==33554432||x.version!==process.argv[2])process.exit(1);console.log(x.mediaBufferBytes)' "$runtime" "$(node -p "require('$source_dir/package.json').version")")
 test "$WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES" = 33554432
 node -e 'const x=JSON.parse(process.argv[1]);const shared=x.webkitVersion[0]>2||x.webkitVersion[0]===2&&x.webkitVersion[1]>=54;if(shared?x.rendererOverrides.forceSharedMemory!=="1":x.rendererOverrides.disableDmaBuf!==null||x.rendererOverrides.forceSharedMemory!==null)process.exit(1);console.log("PASS shipped version-aware renderer compatibility policy")' "$runtime"
 override=$(env -u WEBKIT_DMABUF_RENDERER_FORCE_SHM WEBKIT_DISABLE_DMABUF_RENDERER=0 "$APPDIR/AppRun" --zenith-media-runtime)
