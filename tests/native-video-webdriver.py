@@ -48,17 +48,18 @@ try:
     paused=js('return {paused:nativeTest.v.paused,time:nativeTest.v.currentTime}');assert paused['paused'],paused
     time.sleep(.7);assert abs(js('return nativeTest.v.currentTime')-paused['time'])<.3
     js('document.getElementById("native-pause").click()');until('!nativeTest.v.paused')
-    async_js('await nativeTest.controller.seek(30);const subtitle=nativeTest.controller.tracks.find(t=>t.kind==="subtitle");if(subtitle)await nativeTest.controller.selectTrack("subtitle",subtitle.id);return true;')
-    until('nativeTest.v.currentTime>32')
-    for target in [5,27,30]:
-        async_js('await nativeTest.controller.seek('+str(target)+');const subtitle=nativeTest.controller.tracks.find(t=>t.kind==="subtitle"&&t.selected);if(subtitle)await nativeTest.controller.selectTrack("subtitle",subtitle.id);return true;')
-        until('nativeTest.v.currentTime>'+str(target+.35))
-    print('PASS repeated seeking and restoring the already selected subtitle',flush=True)
-    async_js('await nativeTest.controller.setPlaybackRate(1.5);return true;')
-    before=js('return nativeTest.v.currentTime');time.sleep(1.5)
-    assert js('return nativeTest.v.currentTime')-before>1.5
-    assert js('return nativeTest.v.playbackRate')==1.5
-    print('PASS pause, resume, seek, PGS and playback speed',flush=True)
+    if os.environ.get('ZENITH_FOCUS_CONTROLS') != '1':
+        async_js('await nativeTest.controller.seek(30);const subtitle=nativeTest.controller.tracks.find(t=>t.kind==="subtitle");if(subtitle)await nativeTest.controller.selectTrack("subtitle",subtitle.id);return true;')
+        until('nativeTest.v.currentTime>32')
+        for target in [5,27,30]:
+            async_js('await nativeTest.controller.seek('+str(target)+');const subtitle=nativeTest.controller.tracks.find(t=>t.kind==="subtitle"&&t.selected);if(subtitle)await nativeTest.controller.selectTrack("subtitle",subtitle.id);return true;')
+            until('nativeTest.v.currentTime>'+str(target+.35))
+        print('PASS repeated seeking and restoring the already selected subtitle',flush=True)
+        async_js('await nativeTest.controller.setPlaybackRate(1.5);return true;')
+        before=js('return nativeTest.v.currentTime');time.sleep(1.5)
+        assert js('return nativeTest.v.currentTime')-before>1.5
+        assert js('return nativeTest.v.playbackRate')==1.5
+        print('PASS pause, resume, seek, PGS and playback speed',flush=True)
     async_js('await window.zenithDesktop.win("fullscreen",true);return true;')
     time.sleep(.5);until('nativeTest.controller.playbackQuality().presentedFrames>20')
     async_js('await window.zenithDesktop.win("fullscreen",false);return true;')
@@ -72,11 +73,12 @@ try:
         color=subprocess.check_output(['convert','/tmp/native-app-surface.png','-format',f'%[fx:{point}.b],%[fx:{point}.r],%[fx:{point}.g]','info:'],text=True)
         blue,red,green=map(float,color.split(','));assert blue>.5 and red<.3 and green<.3,('native video is not visibly composited',color)
         print('PASS native video is visible beneath HTML controls',flush=True)
-    async_js('nativeTest.endedEvents=0;nativeTest.v.addEventListener("ended",()=>nativeTest.endedEvents++);await nativeTest.controller.seek(58);return true;')
-    until('nativeTest.v.ended && nativeTest.endedEvents===1',timeout=15)
-    async_js('await nativeTest.controller.play();return true;')
-    until('!nativeTest.v.ended && nativeTest.v.currentTime>.5 && nativeTest.v.currentTime<5')
-    print('PASS natural end-of-file event and replay',flush=True)
+    if os.environ.get('ZENITH_FOCUS_CONTROLS') != '1':
+        async_js('nativeTest.endedEvents=0;nativeTest.v.addEventListener("ended",()=>nativeTest.endedEvents++);await nativeTest.controller.seek(58);return true;')
+        until('nativeTest.v.ended && nativeTest.endedEvents===1',timeout=15)
+        async_js('await nativeTest.controller.play();return true;')
+        until('!nativeTest.v.ended && nativeTest.v.currentTime>.5 && nativeTest.v.currentTime<5')
+        print('PASS natural end-of-file event and replay',flush=True)
     async_js('nativeTest.abort.abort();await nativeTest.controller.destroy();return true;')
     assert js('return !document.documentElement.classList.contains("tauri-native-video")')
     print('PASS fullscreen, resize, controls and native surface cleanup',flush=True)

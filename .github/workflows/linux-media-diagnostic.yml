@@ -10,6 +10,10 @@ on:
         description: Test seeking over a delayed connection with twice the fixture bitrate
         type: boolean
         default: false
+      focus_controls:
+        description: Isolate real controls and normal video seeks from the sparse subtitle test
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -45,6 +49,9 @@ jobs:
         env:
           DISPLAY_SYSTEM: ${{ matrix.display }}
           ZENITH_THROTTLED_TEST: ${{ inputs.constrained_network && '1' || '0' }}
+          ZENITH_FOCUS_CONTROLS: ${{ inputs.focus_controls && '1' || '0' }}
+          TAURI_VIDEO_TELEMETRY: '1'
+          GST_DEBUG: 'playbin3:4,uridecodebin3:4,queue2:4,decodebin3:4'
         run: |
           export XDG_RUNTIME_DIR=$(mktemp -d /tmp/zenith-runtime.XXXXXXXX)
           chmod 700 "$XDG_RUNTIME_DIR"
