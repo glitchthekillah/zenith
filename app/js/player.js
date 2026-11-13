@@ -351,7 +351,14 @@ const spin = (on) => { if (S) S.loading = on; const c = $('.pl-center', root());
 let flashT;
 function flash(text) { const f = $('.pl-flash', root()); if (!f) return; f.textContent = text; f.classList.add('show'); clearTimeout(flashT); flashT = setTimeout(() => f.classList.remove('show'), 900); }
 let idleT;
-function wake() { const el = root(); el.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => { if (S && !S.v.paused && !S.loading && !S.menu) el.classList.add('idle'); }, 2600); }
+function wake() {
+  const el = root();
+  // Even removing an absent class emits a DOM mutation. Native playback
+  // observes this ancestor, so avoid rebuilding its aperture on every move.
+  if (el.classList.contains('idle')) el.classList.remove('idle');
+  clearTimeout(idleT);
+  idleT = setTimeout(() => { if (S && !S.v.paused && !S.loading && !S.menu) el.classList.add('idle'); }, 2600);
+}
 
 // Seeking
 function seekTo(t) {

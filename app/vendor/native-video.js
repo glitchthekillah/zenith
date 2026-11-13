@@ -860,6 +860,7 @@ function structuralMutation(record, state) {
   return someChangedNode(record, (node) => node === state.anchor || node instanceof Element && (node.contains(state.anchor) || node.matches(`[${VIDEO_CONTROLS_ATTRIBUTE}]`) || Boolean(node.querySelector(`[${VIDEO_CONTROLS_ATTRIBUTE}]`))));
 }
 function nativeCoordinateMutation(record) {
+  if (record.attributeName && record.target instanceof Element && record.oldValue === record.target.getAttribute(record.attributeName)) return true;
   if (record.target !== document.documentElement || record.attributeName !== "style") return false;
   return withoutNativeCoordinates(record.oldValue ?? "") === withoutNativeCoordinates(document.documentElement.getAttribute("style") ?? "");
 }

@@ -44,4 +44,12 @@ In that comparison, the Wayland run measured seeks to 4/9 seconds at 11.48/13.11
 
 ## Release boundary
 
+## RC3 mouse-movement follow-up
+
+RC2 improved actual Oppenheimer playback on the user's friend's machine, but moving the mouse still exposed the underlying interface and disrupted controls. `wake()` removed the already-absent idle class on every mouse move. DOMTokenList emits these unchanged attribute records; the native compositor treated them as ancestor background/layout changes and reconstructed the aperture and occluder masks.
+
+Run 43494111831 reproduced eight unchanged class records for eight real X11 pointer movements against the published RC2 package. The new wake regression failed with 30 redundant changes for 30 calls; the compositor regression also failed on an unchanged class record. The fixes guard the wake mutation and ignore unchanged observed attributes. Both tests now pass while real styling changes, loading visibility and idle timer behavior remain covered. The full Node suite passes 103 tests.
+
+That baseline run also intermittently stalled in the earlier sparse-PGS seek phase on Wayland, before it reached the mouse test. This is an existing playback limitation, not evidence about the mouse fix; do not claim it is resolved by RC3. No pipeline, decoder, buffering or renderer selection changes are part of RC3. Software-rendered pointer acceptance remains distinct from the friend's physical Intel GPU validation.
+
 No stable release, updater manifest, Windows executable or previously published changelog has been modified during this investigation. RC1 remains a prerelease with known regressions.

@@ -700,6 +700,11 @@ function structuralMutation(record: MutationRecord, state: NativeCssSurfaceState
 }
 
 function nativeCoordinateMutation(record: MutationRecord): boolean {
+  // DOMTokenList can emit an attribute mutation without changing its value.
+  // Re-reading backgrounds and restoring/reapplying occluder masks for such
+  // records needlessly invalidates the transparent native video aperture.
+  if (record.attributeName && record.target instanceof Element
+    && record.oldValue === record.target.getAttribute(record.attributeName)) return true
   if (record.target !== document.documentElement || record.attributeName !== 'style') return false
   return withoutNativeCoordinates(record.oldValue ?? '')
     === withoutNativeCoordinates(document.documentElement.getAttribute('style') ?? '')
