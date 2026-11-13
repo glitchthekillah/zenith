@@ -136,11 +136,18 @@ try:
       window.zenithDesktop.http=async(url)=>({ok:true,status:200,headers:{'content-type':'application/json'},body:JSON.stringify(url.includes('PlaybackInfo')?{MediaSources:[source],PlaySessionId:'fixture'}:{Items:[],Valid:false})});
       // Restore the real page structure removed by the surface-only test.
       document.body.innerHTML='<div id="app"><main id="view">Fixture library</main></div><div id="player" hidden></div><div id="toasts"></div>';
+      window.uiMetadataEvents=[];
+      const observed=new WeakSet();
+      const observeMetadata=()=>{for(const v of document.querySelectorAll('#player video'))if(!observed.has(v)){
+        observed.add(v);v.addEventListener('loadedmetadata',()=>uiMetadataEvents.push({width:v.videoWidth,duration:v.duration}));
+      }};
+      const observer=new MutationObserver(observeMetadata);observer.observe(document.body,{childList:true,subtree:true});observeMetadata();
       window.playerUiTest={player,source};
       await player.play({Id:'fixture',Name:'Moving video fixture',Type:'Movie',RunTimeTicks:600000000,MediaSources:[source],UserData:{}},{start:0});
-      const v=document.querySelector("#player video");return {width:v.videoWidth,duration:v.duration};
+      observer.disconnect();const v=document.querySelector("#player video");return {width:v.videoWidth,duration:v.duration,events:uiMetadataEvents};
     ''')
     assert metadata['width']==1280 and abs(metadata['duration']-30)<.15,('New title accepted previous-source metadata',metadata)
+    assert metadata['events'] and all(event['width']==1280 and abs(event['duration']-30)<.15 for event in metadata['events']),('loadedmetadata exposed the previous source',metadata)
     until('document.querySelector("#player video").currentTime>2')
     # Exercise the GTK/WebKit input route rather than dispatching DOM events.
     # An overlay can pass DOM-only checks while swallowing real mouse input.
