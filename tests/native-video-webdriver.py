@@ -154,6 +154,15 @@ try:
     for target in [18,4,23,9]:
         began=time.monotonic()
         js('document.querySelector("#player video").currentTime='+str(target))
+        if target==18 and os.environ.get('ZENITH_THROTTLED_TEST')=='1':
+            until('!document.querySelector(".pl-center").hidden',timeout=4)
+            until('Number(getComputedStyle(document.querySelector(".pl-ui")).opacity)>.9',timeout=4)
+            button=js('const r=document.querySelector("[data-p=settings]").getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}')
+            request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':100,'origin':'viewport',**button},{'type':'pointerDown','button':0},{'type':'pointerUp','button':0}]}]})
+            until('!!document.querySelector(".pl-menu")',timeout=3)
+            js('document.querySelector("[data-p=settings]").click()')
+            until('!document.querySelector(".pl-menu")',timeout=3)
+            print('PASS real player remains interactive and shows loading while a network seek is pending',flush=True)
         until('Math.abs(document.querySelector("#player video").currentTime-'+str(target)+')<2',timeout=12)
         time.sleep(.5)
         before=js('return document.querySelector("#player video").currentTime')
