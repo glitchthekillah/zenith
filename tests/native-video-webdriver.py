@@ -31,6 +31,7 @@ try:
       const original=window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);
       window.__TAURI_INTERNALS__.invoke=async(cmd,args,options)=>{
         if(cmd==='plugin:video|native_open' && '''+json.dumps(os.environ.get('ZENITH_SHORT_BUFFER') == '1')+''')args.payload.maxBufferMs=3000;
+        if(cmd==='plugin:video|native_open' && '''+json.dumps(os.environ.get('ZENITH_SMALL_BYTE_BUFFER') == '1')+''')args.payload.targetBufferBytes=4*1024*1024;
         const result=await original(cmd,args,options);
         if(cmd==='plugin:video|native_stats'){
           window.nativeObservations.push({time:result.currentTimeSeconds,frames:result.presentedFrames,buffered:result.bufferedSeconds,bytes:result.encodedBytesBuffered,playing:result.playing});
@@ -95,7 +96,7 @@ try:
         until('!nativeTest.v.ended && nativeTest.v.currentTime>.5 && nativeTest.v.currentTime<5')
         print('PASS natural end-of-file event and replay',flush=True)
     async_js('nativeTest.abort.abort();await nativeTest.controller.destroy();return true;')
-    assert js('return !document.documentElement.classList.contains("tauri-native-video")')
+    until('!document.documentElement.classList.contains("tauri-native-video")',timeout=5)
     print('PASS fullscreen, resize, controls and native surface cleanup',flush=True)
     async_js('''
       const core=await import(new URL('js/core.js',document.baseURI));
