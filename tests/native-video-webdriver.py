@@ -95,6 +95,17 @@ try:
       return true;
     ''')
     until('document.querySelector("#player video").currentTime>2')
+    # Exercise the GTK/WebKit input route rather than dispatching DOM events.
+    # An overlay can pass DOM-only checks while swallowing real mouse input.
+    time.sleep(3.2)
+    request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':100,'origin':'viewport','x':300,'y':250}]}]})
+    until('Number(getComputedStyle(document.querySelector(".pl-ui")).opacity)>.9',timeout=4)
+    button=js('const r=document.querySelector("[data-p=settings]").getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}')
+    request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':100,'origin':'viewport',**button},{'type':'pointerDown','button':0},{'type':'pointerUp','button':0}]}]})
+    until('!!document.querySelector(".pl-menu")',timeout=4)
+    request('DELETE',base+'/actions')
+    js('document.querySelector("[data-p=settings]").click()')
+    print('PASS real pointer wakes controls and opens settings through GTK',flush=True)
     if not os.environ.get('ZENITH_WAYLAND_TEST'):
         window_rect=request('GET',base+'/window/rect')
         video_rect=js('const r=document.querySelector("#player video").getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}')
