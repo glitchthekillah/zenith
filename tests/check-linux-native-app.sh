@@ -6,6 +6,7 @@ work=$(mktemp -d /tmp/zenith-native-app.XXXXXXXX)
 cd "$work"
 env -u APPIMAGE_EXTRACT_AND_RUN "$source_dir/$package" --appimage-extract >/dev/null
 export APPDIR="$work/squashfs-root"
+find "$APPDIR" -name 'libgstplay-1.0.so*' -print -quit | grep .
 mkdir -p /tmp/zenith-media-fixtures
 ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=blue:size=640x360:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 60 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a ac3 -ac 6 /tmp/zenith-media-fixtures/video.mkv
 python3 "$source_dir/tests/linux-realistic-fixtures.py"
