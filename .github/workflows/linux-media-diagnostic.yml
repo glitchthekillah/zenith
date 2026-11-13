@@ -66,4 +66,5 @@ jobs:
             /tmp/native-app-controls.png
             /tmp/native-app-menu.png
             /tmp/native-app-player-frame-*.png
+            /tmp/native-app-codec-*.png
           retention-days: 7
