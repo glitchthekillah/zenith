@@ -126,7 +126,7 @@ try:
     async_js('nativeTest.abort.abort();await nativeTest.controller.destroy();return true;')
     until('!document.documentElement.classList.contains("tauri-native-video")',timeout=5)
     print('PASS fullscreen, resize, controls and native surface cleanup',flush=True)
-    async_js('''
+    metadata=async_js('''
       const core=await import(new URL('js/core.js',document.baseURI));
       const player=await import(new URL('js/player.js',document.baseURI));
       core.settings.groups=[{id:'fixture',name:'Fixture',servers:{jellyfin:{url:'http://127.0.0.1:18488',token:'synthetic',userId:'fixture'}}}];
@@ -138,8 +138,9 @@ try:
       document.body.innerHTML='<div id="app"><main id="view">Fixture library</main></div><div id="player" hidden></div><div id="toasts"></div>';
       window.playerUiTest={player,source};
       await player.play({Id:'fixture',Name:'Moving video fixture',Type:'Movie',RunTimeTicks:600000000,MediaSources:[source],UserData:{}},{start:0});
-      return true;
+      const v=document.querySelector("#player video");return {width:v.videoWidth,duration:v.duration};
     ''')
+    assert metadata['width']==1280 and abs(metadata['duration']-30)<.15,('New title accepted previous-source metadata',metadata)
     until('document.querySelector("#player video").currentTime>2')
     # Exercise the GTK/WebKit input route rather than dispatching DOM events.
     # An overlay can pass DOM-only checks while swallowing real mouse input.
