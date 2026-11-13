@@ -1,5 +1,5 @@
 """Drive the shipped Linux app and its real GTK surface, not a Chromium mock."""
-import base64,json,os,pathlib,subprocess,sys,time,urllib.request
+import array,base64,json,os,pathlib,subprocess,sys,time,urllib.request
 
 def request(method,path,data=None):
     body=None if data is None else json.dumps(data).encode()
@@ -61,6 +61,7 @@ try:
       const {openNativeVideo,waitNativeVideo}=await import(new URL('js/native-video.js',document.baseURI));
       document.body.innerHTML='<div style="position:fixed;inset:0;background:black"><video id="native-test" style="position:absolute;left:40px;top:80px;width:640px;height:360px"></video><button id="native-pause" data-air-video-controls style="position:absolute;left:50px;top:100px">Pause</button></div>';
       const v=document.getElementById('native-test'),abort=new AbortController();
+      v.muted=true;
       const controller=await openNativeVideo(v,{url:'http://127.0.0.1:18488/delayed.mkv',controls:[document.getElementById('native-pause')],signal:abort.signal});
       window.nativeTest={v,controller,abort,errors:[]};controller.on('error',e=>nativeTest.errors.push(String(e.detail)));
       document.getElementById('native-pause').onclick=()=>v.paused?v.play():v.pause();
@@ -75,6 +76,16 @@ try:
         raise AssertionError('Timed out: '+expression+'; '+json.dumps(js('const v=document.querySelector("#player video")||nativeTest.v;return {time:v.currentTime,width:v.videoWidth,errors:nativeTest.errors}')))
     until('nativeTest.v.currentTime>2 && nativeTest.controller.playbackQuality().presentedFrames>10')
     print('PASS shipped native surface decoded frames',js('return nativeTest.controller.playbackQuality()'),flush=True)
+    def audio_peak():
+        data=pathlib.Path('/tmp/native-app-audio.pcm').read_bytes()[-48000:]
+        samples=array.array('h',data[:len(data)//2*2])
+        return max((abs(sample) for sample in samples),default=0)
+    assert audio_peak()<16,'A source opened muted produced audio'
+    js('nativeTest.v.muted=false')
+    deadline=time.monotonic()+5
+    while audio_peak()<32 and time.monotonic()<deadline:time.sleep(.1)
+    assert audio_peak()>32,'Unmuting a source opened muted did not restore audible audio'
+    print('PASS source opened muted unmutes with audible audio',flush=True)
     js('document.getElementById("native-pause").click()');time.sleep(.5)
     paused=js('return {paused:nativeTest.v.paused,time:nativeTest.v.currentTime}');assert paused['paused'],paused
     time.sleep(.7);assert abs(js('return nativeTest.v.currentTime')-paused['time'])<.3
@@ -138,6 +149,7 @@ try:
     until('!!document.querySelector(".pl-menu")',timeout=4)
     request('DELETE',base+'/actions')
     js('document.querySelector("[data-p=settings]").click()')
+    until('!document.querySelector(".pl-menu")',timeout=4)
     print('PASS real pointer wakes controls and opens settings through GTK',flush=True)
     for target in [18,4,23,9]:
         began=time.monotonic()
@@ -169,6 +181,7 @@ try:
         pathlib.Path(image).write_bytes(base64.b64decode(encoded))
         return image
     js('document.querySelector("#player video").pause();document.querySelector("#player").dispatchEvent(new MouseEvent("mousemove",{bubbles:true}))')
+    assert js('return !document.querySelector(".pl-menu")'),'Menu should be closed before taking the closed reference'
     time.sleep(.5)
     closed=capture_ui('controls')
     js('document.querySelector("[data-p=settings]").click()')

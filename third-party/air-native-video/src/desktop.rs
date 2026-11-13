@@ -694,8 +694,9 @@ mod linux_gstreamer {
             "buffer-size",
             target_buffer_bytes.map(|bytes| bytes as i32).unwrap_or(-1),
         );
-        player.play.set_volume(payload.volume.clamp(0.0, 1.0));
-        player.play.set_mute(payload.muted);
+        // The guest implements mute by setting effective volume to zero.
+        // A separate persistent mute flag would survive its Unmute command.
+        player.play.set_volume(if payload.muted { 0.0 } else { payload.volume.clamp(0.0, 1.0) });
         player.gtk_sink.set_property("force-aspect-ratio", true);
         super::linux_surface::place_widget(
             &player.widget,

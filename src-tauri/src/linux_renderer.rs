@@ -8,7 +8,9 @@ const SHARED: &str = "WEBKIT_DMABUF_RENDERER_FORCE_SHM";
 
 fn default_override(version: (u32, u32), explicitly_configured: bool) -> Option<&'static str> {
     if explicitly_configured { return None; }
-    Some(if version >= (2, 54) { SHARED } else { LEGACY })
+    // The blanket legacy override regressed transparent overlay repainting
+    // and UI responsiveness. Older WebKit keeps its accelerated default.
+    if version >= (2, 54) { Some(SHARED) } else { None }
 }
 
 #[cfg(target_os = "linux")]
@@ -32,9 +34,9 @@ pub fn configure() -> (u32, u32, u32) {
 mod tests {
     use super::*;
     #[test]
-    fn old_webkit_uses_the_documented_compatible_renderer() {
-        assert_eq!(default_override((2, 44), false), Some(LEGACY));
-        assert_eq!(default_override((2, 50), false), Some(LEGACY));
+    fn old_webkit_keeps_its_accelerated_default() {
+        assert_eq!(default_override((2, 44), false), None);
+        assert_eq!(default_override((2, 50), false), None);
     }
     #[test]
     fn damage_tracking_keeps_the_compositor_and_full_shared_frames() {
