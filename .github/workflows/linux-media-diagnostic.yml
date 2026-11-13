@@ -44,13 +44,17 @@ jobs:
       - name: Install disposable diagnostic dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-0 webkit2gtk-driver libegl1 libgl1-mesa-dri libxdo3 libfuse2 xvfb xauth pulseaudio pulseaudio-utils dbus-x11 ffmpeg imagemagick weston
+          sudo apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-0 webkit2gtk-driver libegl1 libgl1-mesa-dri libxdo3 libfuse2 xvfb xauth pulseaudio pulseaudio-utils dbus-x11 ffmpeg imagemagick weston gdb
           cargo install tauri-driver --version 2.0.6 --locked
       - name: Fetch and verify candidate
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_RUN: ${{ inputs.candidate_run }}
         run: |
+          # Disposable runner only: capture the native fault, not another
+          # ambiguous WebDriver disconnect. Fixtures contain no private media.
+          ulimit -c unlimited
+          sudo sysctl -w kernel.core_pattern=/tmp/zenith-core.%e.%p
           [[ "$CANDIDATE_RUN" =~ ^[0-9]+$ ]]
           gh run download "$CANDIDATE_RUN" --repo glitchthekillah/zenith --name zenith-linux-x64 --dir candidate
           (cd candidate && sha256sum --check SHA256SUMS)
@@ -81,6 +85,14 @@ jobs:
             test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
           fi
           bash tests/check-linux-native-app.sh
+      - name: Read native crash traces
+        if: failure()
+        run: |
+          find /tmp -maxdepth 1 -name 'zenith-core.*' -print | while read -r core; do
+            executable=$(find /tmp/zenith-native-app.*/squashfs-root -path '*/usr/bin/zenith' -print -quit)
+            gdb --batch -ex 'set pagination off' -ex 'thread apply all bt' "$executable" "$core" >"$core.backtrace.txt" 2>&1 || true
+            tail -100 "$core.backtrace.txt"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
@@ -94,4 +106,5 @@ jobs:
             /tmp/native-app-menu.png
             /tmp/native-app-player-frame-*.png
             /tmp/native-app-codec-*.png
+            /tmp/zenith-core.*.backtrace.txt
           retention-days: 7
