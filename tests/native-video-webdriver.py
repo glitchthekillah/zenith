@@ -26,22 +26,37 @@ try:
     for _ in range(100):
         if js('return !!window.__TAURI__?.core && !!document.body'):break
         time.sleep(.1)
-    js('''
-      window.nativeObservations=[];
-      const original=window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);
-      window.__TAURI_INTERNALS__.invoke=async(cmd,args,options)=>{
-        if(cmd==='plugin:video|native_open' && '''+json.dumps(os.environ.get('ZENITH_SHORT_BUFFER') == '1')+''')args.payload.maxBufferMs=3000;
-        if(cmd==='plugin:video|native_open' && '''+json.dumps(os.environ.get('ZENITH_SMALL_BYTE_BUFFER') == '1')+''')args.payload.targetBufferBytes=4*1024*1024;
-        const result=await original(cmd,args,options);
-        if(cmd==='plugin:video|native_stats'){
-          window.nativeObservations.push({time:result.currentTimeSeconds,frames:result.presentedFrames,buffered:result.bufferedSeconds,bytes:result.encodedBytesBuffered,playing:result.playing});
-          if(window.nativeObservations.length>40)window.nativeObservations.shift();
-        }
-        return result;
-      };
-    ''')
-    if os.environ.get('ZENITH_SHORT_BUFFER') == '1':
-        print('DIAGNOSTIC overriding only the native buffer duration: 15s -> 3s',flush=True)
+    if os.environ.get('ZENITH_PROBE_BUFFERS') == '1':
+        results=[]
+        # Use the public factory injection hook. Tauri's invoke property is
+        # read-only, so assigning a replacement silently does nothing.
+        for seconds,byte_limit in [(15,64*1024*1024),(3,64*1024*1024),(3,4*1024*1024)]:
+            async_js('''
+              const {openNativeVideo,waitNativeVideo}=await import(new URL('js/native-video.js',document.baseURI));
+              const {attachTauriBackend}=await import(new URL('vendor/native-video.js',document.baseURI));
+              document.body.innerHTML='<video id="probe" style="position:fixed;left:40px;top:80px;width:640px;height:360px"></video>';
+              const v=document.getElementById('probe'),abort=new AbortController();
+              const controller=await openNativeVideo(v,{url:'http://127.0.0.1:18488/moving.mkv',controls:[],signal:abort.signal},(element,options)=>{
+                options.playback.linux.buffer={maxSeconds:'''+str(seconds)+''',maxBytes:'''+str(byte_limit)+'''};
+                return attachTauriBackend(element,options);
+              });
+              window.bufferProbe={v,controller,abort};await waitNativeVideo(v,abort.signal);return true;
+            ''')
+            for target in [18,4,23,9]:
+                began=time.monotonic()
+                async_js('await bufferProbe.controller.seek('+str(target)+');return true;')
+                resumed=False
+                while time.monotonic()-began<20:
+                    quality=js('return bufferProbe.controller.playbackQuality()')
+                    if quality['presentedFrames']>2 and target+.35<quality['mediaTimeSeconds']<target+4:
+                        resumed=True;break
+                    time.sleep(.2)
+                stats=async_js('return await bufferProbe.controller.stats();')
+                result={'seconds':seconds,'bytes':byte_limit,'target':target,'elapsed':round(time.monotonic()-began,2),'resumed':resumed,'stats':stats}
+                results.append(result);print('BUFFER PROBE',json.dumps(result),flush=True)
+            async_js('await bufferProbe.controller.destroy();return true;')
+        print('BUFFER PROBE COMPLETE',json.dumps(results),flush=True)
+        sys.exit(0)
     async_js('''
       const {openNativeVideo,waitNativeVideo}=await import(new URL('js/native-video.js',document.baseURI));
       document.body.innerHTML='<div style="position:fixed;inset:0;background:black"><video id="native-test" style="position:absolute;left:40px;top:80px;width:640px;height:360px"></video><button id="native-pause" data-air-video-controls style="position:absolute;left:50px;top:100px">Pause</button></div>';
@@ -57,7 +72,7 @@ try:
         while time.monotonic()<deadline:
             if js('return '+expression):return
             time.sleep(.2)
-        raise AssertionError('Timed out: '+expression+'; '+json.dumps(js('const v=document.querySelector("#player video")||nativeTest.v;return {time:v.currentTime,width:v.videoWidth,errors:nativeTest.errors,native:window.nativeObservations.slice(-12)}')))
+        raise AssertionError('Timed out: '+expression+'; '+json.dumps(js('const v=document.querySelector("#player video")||nativeTest.v;return {time:v.currentTime,width:v.videoWidth,errors:nativeTest.errors}')))
     until('nativeTest.v.currentTime>2 && nativeTest.controller.playbackQuality().presentedFrames>10')
     print('PASS shipped native surface decoded frames',js('return nativeTest.controller.playbackQuality()'),flush=True)
     js('document.getElementById("native-pause").click()');time.sleep(.5)
