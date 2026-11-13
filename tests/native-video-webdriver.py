@@ -126,6 +126,10 @@ try:
     async_js('nativeTest.abort.abort();await nativeTest.controller.destroy();return true;')
     until('!document.documentElement.classList.contains("tauri-native-video")',timeout=5)
     if not os.environ.get('ZENITH_WAYLAND_TEST'):
+        # DOM cleanup precedes the next native/WebKit composition. Inspect a
+        # presented frame, not the previous frame still queued at close time.
+        async_js('await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return true;')
+        time.sleep(.15)
         subprocess.run(['import','-window','root','/tmp/native-app-closed.png'],check=True)
         channels=subprocess.check_output(['convert','/tmp/native-app-closed.png','-format',f'%[fx:{point}.r],%[fx:{point}.g],%[fx:{point}.b]','info:'],text=True)
         assert max(map(float,channels.split(',')))<.05,('Closed video leaked through restored opaque UI',channels)
