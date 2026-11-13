@@ -8,6 +8,10 @@ env -u APPIMAGE_EXTRACT_AND_RUN "$source_dir/$package" --appimage-extract >/dev/
 export APPDIR="$work/squashfs-root"
 find "$APPDIR" -name 'libgstplay-1.0.so*' -print -quit | grep .
 application="$APPDIR/AppRun"
+if [[ "${ZENITH_PROBE_PLAYBIN3:-0}" = 1 ]]; then
+  export GST_PLAY_USE_PLAYBIN3=1
+  echo 'DIAGNOSTIC selecting GstPlay playbin3'
+fi
 if [[ "${ZENITH_PROBE_X11_THREADS:-0}" = 1 ]]; then
   cc -shared -fPIC "$source_dir/tests/x11-thread-init-probe.c" -Wl,-z,defs -l:libX11.so.6 -o "$work/xthreads-probe.so"
   cat >"$work/zenith-thread-probe" <<EOF
