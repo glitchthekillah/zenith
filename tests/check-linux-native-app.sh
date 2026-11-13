@@ -4,10 +4,16 @@ source_dir="$PWD"
 package=$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
 work=$(mktemp -d /tmp/zenith-native-app.XXXXXXXX)
 cd "$work"
-env -u APPIMAGE_EXTRACT_AND_RUN "$source_dir/$package" --appimage-extract >/dev/null
-export APPDIR="$work/squashfs-root"
-find "$APPDIR" -name 'libgstplay-1.0.so*' -print -quit | grep .
-application="$APPDIR/AppRun"
+if [[ -n "${ZENITH_NATIVE_APPLICATION:-}" ]]; then
+  application="$ZENITH_NATIVE_APPLICATION"
+  test -x "$application"
+  ldd "$application" | grep 'libgstplay-1.0.so'
+else
+  env -u APPIMAGE_EXTRACT_AND_RUN "$source_dir/$package" --appimage-extract >/dev/null
+  export APPDIR="$work/squashfs-root"
+  find "$APPDIR" -name 'libgstplay-1.0.so*' -print -quit | grep .
+  application="$APPDIR/AppRun"
+fi
 if [[ "${ZENITH_PROBE_PLAYBIN3:-0}" = 1 ]]; then
   export GST_PLAY_USE_PLAYBIN3=1
   echo 'DIAGNOSTIC selecting GstPlay playbin3'

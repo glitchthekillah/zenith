@@ -6,6 +6,11 @@ on:
         description: Verified Linux package build run
         required: true
         type: string
+      package_format:
+        description: Exercise the bundled AppImage or the installed Debian runtime
+        type: choice
+        options: [appimage, deb]
+        default: appimage
       constrained_network:
         description: Test seeking over a delayed connection with twice the fixture bitrate
         type: boolean
@@ -60,6 +65,9 @@ jobs:
           chmod +x candidate/*.AppImage
           mkdir -p src-tauri/target/release/bundle/appimage
           cp candidate/*.AppImage src-tauri/target/release/bundle/appimage/
+          if [[ '${{ inputs.package_format }}' = deb ]]; then
+            sudo apt-get install -y ./candidate/*.deb
+          fi
       - name: Exercise packaged native video
         env:
           DISPLAY_SYSTEM: ${{ matrix.display }}
@@ -68,6 +76,7 @@ jobs:
           ZENITH_PROBE_BUFFERS: ${{ inputs.probe_buffers && '1' || '0' }}
           ZENITH_PROBE_X11_THREADS: ${{ inputs.x11_thread_probe && '1' || '0' }}
           ZENITH_PROBE_PLAYBIN3: ${{ inputs.playbin3_probe && '1' || '0' }}
+          ZENITH_NATIVE_APPLICATION: ${{ inputs.package_format == 'deb' && '/usr/bin/zenith' || '' }}
           TAURI_VIDEO_TELEMETRY: '1'
           GST_DEBUG: 'playbin3:4,uridecodebin3:4,queue2:4,decodebin3:4'
         run: |

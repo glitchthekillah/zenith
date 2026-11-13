@@ -25,7 +25,16 @@ In that comparison, the Wayland run measured seeks to 4/9 seconds at 11.48/13.11
 - 9af760a rolls back RC1's blanket legacy renderer override on WebKit older than 2.54, preserves the newer full-frame shared-memory correction, fixes initial-mute/unmute consistency and installs the GstPlay build SDK in both Linux workflows. The next candidate build is 43354046004. The acceptance test now explicitly verifies closed DOM menu state before comparing presented pixels.
 - Subsequent test-only commits require real pointer interactivity and a visible loading indicator during delayed-network seeking, plus the GstPlay library inside the AppImage. These changes do not weaken pixel checks.
 
-101 Node regression tests, the host Cargo check and three standalone renderer-policy tests passed. Final packaged X11/Wayland and constrained-network acceptance remains pending. These software-rendered checks cannot establish every physical GPU/compositor's behavior.
+101 Node regression tests and three standalone renderer-policy tests passed again after the final pipeline selection change. Final packaged X11/Wayland and constrained-network acceptance remains pending. These software-rendered checks cannot establish every physical GPU/compositor's behavior.
+
+## Subsequent lifecycle and transport evidence
+
+- Native GstPlay readiness is gated by the matching URI acknowledgment and matching media info. Its stop and URI setters queue worker operations; their return alone does not acknowledge a replacement file.
+- A concrete XCB abort in run 43358254885 identified missing early Xlib threading initialization. The app now calls XInitThreads before creating Tauri/GTK/WebKit or media workers; the packaged binary exposes successful initialization in its runtime check.
+- The first closed-video pixel assertion sampled a frame before WebKit presented its opaque background. Waiting two animation frames plus 150 ms makes that check inspect a presented frame. The assertion still requires black pixels; it is not removed or relaxed.
+- GStreamer 1.20's GstPlay defaults to legacy playbin2. Selecting its supported playbin3 path resolved the sparse-PGS seek stalls in run 43362663571. The complete X11 suite passed: four real-player seeks around 1.2 seconds, visible menu pixels, six title replacements and HEVC10/VP9/AV1 originals. The app now selects this path before workers start, preserving explicit user overrides.
+- Some later failures show only a tauri-driver intermediary HTTP `SendRequest` connection reset. App telemetry continues after the reset; these are not sufficient evidence that Zenith crashed. The intermediary uses a pooled Hyper client. The next controlled check sends standard session commands straight to WebKitWebDriver after Tauri translates launch capabilities, with no retries and all existing assertions retained. This isolates test transport from the app. A core capture is enabled only on disposable diagnostic runners.
+- The Tauri GTK ancestry fix described by the native-video upstream is already present in the locked tauri-runtime-wry 2.12.3 source (`toplevel()` with a fallible downcast), so blindly applying an older runtime patch is unnecessary.
 
 ## Upstream references
 
