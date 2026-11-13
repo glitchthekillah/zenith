@@ -1,5 +1,5 @@
 """Drive the shipped Linux app and its real GTK surface, not a Chromium mock."""
-import array,base64,json,os,pathlib,subprocess,sys,time,urllib.request
+import array,base64,json,os,pathlib,re,subprocess,sys,time,urllib.request
 
 def request(method,path,data=None):
     body=None if data is None else json.dumps(data).encode()
@@ -213,7 +213,7 @@ try:
     assert difference>.003,('Menu exists in DOM but its pixels were not presented',difference)
     print('PASS actual player menu visibly changes the rendered pixels',difference,flush=True)
     js('document.querySelector("[data-p=settings]").click();document.querySelector("#player video").play()')
-    for cycle in range(3):
+    for cycle in range(6):
         js('document.querySelector("#player").dispatchEvent(new MouseEvent("mousemove",{bubbles:true}));document.querySelector("[data-p=settings]").click()')
         assert js('return !!document.querySelector(".pl-menu")')
         time.sleep(.5)
@@ -235,6 +235,14 @@ try:
         print('PASS original-file native codec compatibility',source,flush=True)
     async_js('await playerUiTest.player.close(true);return true;')
 finally:
+    if sys.exc_info()[0] is not None:
+        # CI-only kernel diagnostics distinguish a native/WebKit crash from
+        # a test assertion or a slow media request; no credentials are logged.
+        try:
+            kernel=subprocess.run(['sudo','-n','dmesg','--ctime'],capture_output=True,text=True,timeout=3)
+            for line in kernel.stdout.splitlines():
+                if re.search(r'zenith|webkit|segfault|trap|killed process',line,re.I):print('KERNEL',line,flush=True)
+        except Exception:pass
     if session:
         try:request('DELETE','/session/'+session)
         except Exception:pass

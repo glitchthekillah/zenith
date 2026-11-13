@@ -462,6 +462,8 @@ mod linux_gstreamer {
         pipeline: gst::Element,
         play: gst_play::Play,
         play_state: gst_play::PlayState,
+        source_acknowledged: bool,
+        media_ready: bool,
         gtk_sink: gst::Element,
         widget: gtk::Widget,
         source: Arc<RwLock<NativeOpenRequest>>,
@@ -605,6 +607,8 @@ mod linux_gstreamer {
             pipeline,
             play,
             play_state: gst_play::PlayState::Stopped,
+            source_acknowledged: false,
+            media_ready: false,
             gtk_sink,
             widget,
             source,
@@ -718,6 +722,8 @@ mod linux_gstreamer {
         player.measured_fps = 0.0;
         player.tracks.clear();
         player.play_state = gst_play::PlayState::Stopped;
+        player.source_acknowledged = false;
+        player.media_ready = false;
 
         if payload.autoplay { player.play.play(); } else { player.play.pause(); }
         player.session_key.clone_from(&payload.session_key);
@@ -850,11 +856,36 @@ mod linux_gstreamer {
                 return Ok(());
             };
             player.play.stop();
-            player.widget.hide();
             player.session_key.clear();
             player.tracks.clear();
+            player.desired_playing = false;
+            player.source_acknowledged = false;
+            player.media_ready = false;
             player.play_state = gst_play::PlayState::Stopped;
             player.error = None;
+            // stop() is asynchronous. Unmapping GtkGLArea while the worker is
+            // still streaming can invalidate its active GL context. Hide only
+            // after GstPlay acknowledges STOPPED (pipeline already in READY).
+            // A replacement session cancels this pending hide automatically.
+            let deadline = Instant::now() + std::time::Duration::from_secs(10);
+            gtk::glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+                PLAYER.with(|slot| {
+                    let slot = slot.borrow();
+                    let Some(player) = slot.as_ref() else { return gtk::glib::ControlFlow::Break };
+                    if !player.session_key.is_empty() { return gtk::glib::ControlFlow::Break; }
+                    let bus = player.play.message_bus();
+                    while let Some(message) = bus.pop() {
+                        if let Ok(gst_play::PlayMessage::StateChanged(state)) = gst_play::PlayMessage::parse(&message) {
+                            if state.state() == gst_play::PlayState::Stopped {
+                                player.widget.hide();
+                                return gtk::glib::ControlFlow::Break;
+                            }
+                        }
+                    }
+                    if Instant::now() >= deadline { gtk::glib::ControlFlow::Break }
+                    else { gtk::glib::ControlFlow::Continue }
+                })
+            });
             Ok(())
         })
     }
@@ -871,9 +902,10 @@ mod linux_gstreamer {
 
     fn snapshot(player: &mut NativePlayer) -> Result<NativePlaybackSnapshot> {
         drain_bus(player)?;
-        let position = player.play.position().map(|time| time.seconds_f64()).unwrap_or(0.0);
-        let duration = player.play.duration().map(|time| time.seconds_f64()).unwrap_or(0.0);
-        let info = player.play.media_info();
+        let ready = player.source_acknowledged && player.media_ready;
+        let position = if ready { player.play.position().map(|time| time.seconds_f64()).unwrap_or(0.0) } else { 0.0 };
+        let duration = if ready { player.play.duration().map(|time| time.seconds_f64()).unwrap_or(0.0) } else { 0.0 };
+        let info = player.play.media_info().filter(|info| ready && info.uri().as_str() == player.source.read().uri);
         let live = info.as_ref().is_some_and(|info| info.is_live());
         let seekable = info.as_ref().map_or(!live, |info| info.is_seekable());
         let seekable_start = 0.0;
@@ -907,7 +939,7 @@ mod linux_gstreamer {
                 );
             }
         }
-        let (video_width, video_height) = player
+        let (mut video_width, mut video_height) = player
             .gtk_sink
             .static_pad("sink")
             .and_then(|pad| pad.current_caps())
@@ -920,9 +952,10 @@ mod linux_gstreamer {
                 })
             })
             .unwrap_or((0, 0));
+        if !ready { video_width = 0; video_height = 0; }
         let playing = player.desired_playing;
         Ok(NativePlaybackSnapshot {
-            buffering: Some(playing && player.play_state != gst_play::PlayState::Playing),
+            buffering: Some(playing && (!ready || player.play_state != gst_play::PlayState::Playing)),
             ended: Some(player.ended),
             duration_seconds: duration,
             current_time_seconds: position,
@@ -948,16 +981,29 @@ mod linux_gstreamer {
 
     fn drain_bus(player: &mut NativePlayer) -> Result<()> {
         let bus = player.play.message_bus();
+        let expected_uri = player.source.read().uri.clone();
         while let Some(message) = bus.pop() {
             let Ok(message) = gst_play::PlayMessage::parse(&message) else { continue };
             match message {
-                gst_play::PlayMessage::EndOfStream(_) => {
-                    player.ended = true;
-                    player.desired_playing = false;
+                gst_play::PlayMessage::UriLoaded(loaded) => {
+                    if loaded.uri().as_str() == expected_uri {
+                        player.source_acknowledged = true;
+                    }
                 }
-                gst_play::PlayMessage::StateChanged(state) => player.play_state = state.state(),
-                gst_play::PlayMessage::Buffering(buffering) => player.buffering_percent = buffering.percent() as i32,
-                gst_play::PlayMessage::Error(error) => player.error = Some(error.error().to_string()),
+                gst_play::PlayMessage::MediaInfoUpdated(info) => {
+                    if player.source_acknowledged && info.media_info().uri().as_str() == expected_uri {
+                        player.media_ready = true;
+                    }
+                }
+                gst_play::PlayMessage::EndOfStream(_) => {
+                    if player.source_acknowledged && player.media_ready {
+                        player.ended = true;
+                        player.desired_playing = false;
+                    }
+                }
+                gst_play::PlayMessage::StateChanged(state) if player.source_acknowledged => player.play_state = state.state(),
+                gst_play::PlayMessage::Buffering(buffering) if player.source_acknowledged => player.buffering_percent = buffering.percent() as i32,
+                gst_play::PlayMessage::Error(error) if player.source_acknowledged => player.error = Some(error.error().to_string()),
                 _ => {}
             }
         }
@@ -967,7 +1013,9 @@ mod linux_gstreamer {
     }
 
     fn refresh_tracks(player: &mut NativePlayer) {
+        if !player.source_acknowledged || !player.media_ready { return; }
         let Some(info) = player.play.media_info() else { return };
+        if info.uri().as_str() != player.source.read().uri { return; }
         let selected = [
             player.play.current_video_track().map(|track| (TrackKind::Video, track.index())),
             player.play.current_audio_track().map(|track| (TrackKind::Audio, track.index())),
