@@ -106,6 +106,19 @@ try:
     request('DELETE',base+'/actions')
     js('document.querySelector("[data-p=settings]").click()')
     print('PASS real pointer wakes controls and opens settings through GTK',flush=True)
+    for target in [18,4,23,9]:
+        began=time.monotonic()
+        js('document.querySelector("#player video").currentTime='+str(target))
+        until('Math.abs(document.querySelector("#player video").currentTime-'+str(target)+')<2',timeout=12)
+        time.sleep(.5)
+        before=js('return document.querySelector("#player video").currentTime')
+        until('document.querySelector("#player video").currentTime>'+str(before+.4),timeout=12)
+        if not os.environ.get('ZENITH_WAYLAND_TEST'):
+            image='/tmp/native-app-after-seek.png'
+            subprocess.run(['import','-window','root',image],check=True)
+            mean=float(subprocess.check_output(['convert',image,'-gravity','center','-crop','200x120+0+0','+repage','-colorspace','Gray','-format','%[fx:mean]','info:'],text=True))
+            assert mean>.04,('Seeking advanced the clock but left a black picture',target,mean)
+        print('PASS actual player seek resumed picture',target,'elapsed',round(time.monotonic()-began,2),flush=True)
     if not os.environ.get('ZENITH_WAYLAND_TEST'):
         window_rect=request('GET',base+'/window/rect')
         video_rect=js('const r=document.querySelector("#player video").getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}')

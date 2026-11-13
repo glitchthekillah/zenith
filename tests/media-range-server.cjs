@@ -2,6 +2,9 @@
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
 function createServer(directory){
  const root=path.resolve(directory);
+ // Optional diagnostic-only network conditions. Keep range semantics intact.
+ const bytesPerSecond=Number(process.env.ZENITH_FIXTURE_BYTES_PER_SECOND)||0;
+ const delayMs=Number(process.env.ZENITH_FIXTURE_DELAY_MS)||0;
  return http.createServer((req,res)=>{
   let name;try{name=decodeURIComponent(new URL(req.url,'http://localhost').pathname)}catch{res.writeHead(400).end();return}
   if(name==='/Videos/fixture/stream'){
@@ -23,7 +26,19 @@ function createServer(directory){
   headers['Content-Length']=end-start+1;
   res.writeHead(status,headers);
   if(req.method==='HEAD'){res.end();return}
-  const stream=fs.createReadStream(file,{start,end});stream.on('error',()=>res.destroy());res.on('close',()=>stream.destroy());stream.pipe(res);
+  const stream=fs.createReadStream(file,{start,end,highWaterMark:65536});stream.on('error',()=>res.destroy());res.on('close',()=>stream.destroy());
+  if(!bytesPerSecond&&!delayMs){stream.pipe(res);return}
+  (async()=>{
+   await new Promise(resolve=>setTimeout(resolve,delayMs));
+   const began=performance.now();let sent=0;
+   for await(const chunk of stream){
+    if(res.destroyed)break;
+    if(!res.write(chunk))await new Promise(resolve=>{res.once('drain',resolve);res.once('close',resolve)});
+    sent+=chunk.length;
+    if(bytesPerSecond){const wait=sent*1000/bytesPerSecond-(performance.now()-began);if(wait>0)await new Promise(resolve=>setTimeout(resolve,wait))}
+   }
+   if(!res.destroyed)res.end();
+  })().catch(()=>res.destroy());
  });
 }
 module.exports={createServer};

@@ -6,6 +6,10 @@ on:
         description: Verified Linux package build run
         required: true
         type: string
+      constrained_network:
+        description: Test seeking over a delayed connection with twice the fixture bitrate
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -40,6 +44,7 @@ jobs:
       - name: Exercise packaged native video
         env:
           DISPLAY_SYSTEM: ${{ matrix.display }}
+          ZENITH_THROTTLED_TEST: ${{ inputs.constrained_network && '1' || '0' }}
         run: |
           export XDG_RUNTIME_DIR=$(mktemp -d /tmp/zenith-runtime.XXXXXXXX)
           chmod 700 "$XDG_RUNTIME_DIR"
