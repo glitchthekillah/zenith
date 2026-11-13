@@ -1,5 +1,6 @@
 """Drive the shipped Linux app and its real GTK surface, not a Chromium mock."""
 import array,base64,json,os,pathlib,re,subprocess,sys,time,urllib.request
+from threading import Thread
 
 def request(method,path,data=None):
     body=None if data is None else json.dumps(data).encode()
@@ -196,8 +197,16 @@ try:
         reference=Image.open('/tmp/native-app-control-reference.png').convert('RGBA').crop(row_box)
         opaque=[i for i,pixel in enumerate(reference.getdata()) if min(pixel[:3])>220 and pixel[3]>240]
         assert len(opaque)>50,('Control reference has too few opaque icon pixels',len(opaque))
+        motion_errors=[]
+        def move_while_capturing():
+            try:
+                request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':25,'origin':'viewport','x':350+(step%16)*18,'y':270+(step%12)*8} for step in range(32)]}]})
+            except Exception as error:motion_errors.append(error)
+        motion=Thread(target=move_while_capturing)
+        motion.start()
     for step in range(8):
-        request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':80,'origin':'viewport','x':350+step*18,'y':270+step*8}]}]})
+        if os.environ.get('ZENITH_WAYLAND_TEST'):
+            request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':80,'origin':'viewport','x':350+step*18,'y':270+step*8}]}]})
         if not os.environ.get('ZENITH_WAYLAND_TEST'):
             image=f'/tmp/native-app-pointer-{step}.png'
             subprocess.run(['import','-window','root',image],check=True)
@@ -208,6 +217,10 @@ try:
             actual=list(Image.open(image).convert('RGB').crop(actual_box).getdata())
             missing=sum(min(actual[i])<160 for i in opaque)/len(opaque)
             assert missing<.10,('Mouse movement erased control-bar pixels',step,missing)
+    if not os.environ.get('ZENITH_WAYLAND_TEST'):
+        motion.join(timeout=5)
+        assert not motion.is_alive(),'Pointer action did not finish'
+        assert not motion_errors,motion_errors
     noops=async_js('await new Promise(r=>requestAnimationFrame(r));pointerObserver.disconnect();return pointerNoops;')
     assert noops==0,('Mouse movement repeatedly invalidated unchanged video ancestors',noops)
     print('PASS continuous real mouse input does not churn the native video aperture',flush=True)
