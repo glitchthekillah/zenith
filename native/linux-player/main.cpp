@@ -5,6 +5,7 @@
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QQuickWebEngineProfile>
+#include <QWebChannel>
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
 #include <QWebEngineUrlRequestInterceptor>
 #include <QWebEngineUrlRequestInfo>
@@ -101,12 +102,18 @@ int main(int argc, char **argv) {
     const QUrl entry = QUrl::fromLocalFile(html);
     const auto server = bootstrap->value("group").toMap().value("servers").toMap().value("jellyfin").toMap().value("url").toString();
     Bridge bridge(std::move(*bootstrap), entry);
+    // The bridge is constructed in C++, so it has no QQmlContext. The QML
+    // registeredObjects list tries to infer its id through that null context.
+    // Register it explicitly before WebEngine initializes its transport.
+    QWebChannel channel;
+    channel.registerObject(QStringLiteral("bridge"), &bridge);
     QQuickWebEngineProfile profile;
     profile.setOffTheRecord(true);
     AssetGate gate(assets, QUrl(server), &profile);
     profile.setUrlRequestInterceptor(&gate);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("nativeBridge", &bridge);
+    engine.rootContext()->setContextProperty("playerChannel", &channel);
     engine.rootContext()->setContextProperty("trustedProfile", &profile);
     engine.rootContext()->setContextProperty("playerEntry", entry);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, [&] {

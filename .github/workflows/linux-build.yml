@@ -44,7 +44,7 @@ jobs:
           /tmp/qt-lifecycle-tests
       - name: Build upstream-backed Qt player
         run: |
-          cmake -S native/linux-player -B /tmp/qt-player-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_ROOT" -DCMAKE_INSTALL_PREFIX=/tmp/qt-player-stage -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_TESTING=ON
+          cmake -S native/linux-player -B /tmp/qt-player-build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_PREFIX_PATH="$QT_ROOT" -DCMAKE_INSTALL_PREFIX=/tmp/qt-player-stage -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_TESTING=ON
           cmake --build /tmp/qt-player-build -j2
           QT_QPA_PLATFORM=offscreen ctest --test-dir /tmp/qt-player-build --output-on-failure
           cmake --install /tmp/qt-player-build
@@ -71,7 +71,8 @@ jobs:
           export LD_LIBRARY_PATH="$QT_ROOT/lib:/tmp/qt-player-stage/lib"
           for core in /tmp/zenith-qt-core.*; do
             test -f "$core" || continue
-            gdb -batch -ex 'set pagination off' -ex 'thread apply all bt' /tmp/qt-player-stage/bin/zenith-qt-player "$core" > /tmp/qt-player-evidence/core-stack.txt 2>&1
+            file "$core" > "/tmp/qt-player-evidence/$(basename "$core").identity.txt"
+            gdb -batch -ex 'set pagination off' -ex 'thread apply all bt' /tmp/qt-player-stage/bin/zenith-qt-player "$core" > "/tmp/qt-player-evidence/$(basename "$core").stack.txt" 2>&1
           done
       - name: Assemble private Qt player runtime
         if: ${{ inputs.package_release }}

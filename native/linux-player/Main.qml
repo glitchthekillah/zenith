@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Window
 import QtWebEngine
-import QtWebChannel
 import Zenith.Native 1.0
 
 Window {
@@ -24,15 +23,11 @@ Window {
         anchors.fill: parent
         mirrorVertically: true
     }
-    WebChannel {
-        id: channel
-        registeredObjects: [nativeBridge]
-    }
     WebEngineView {
         id: controls
         anchors.fill: parent
         profile: trustedProfile
-        webChannel: channel
+        webChannel: playerChannel
         url: playerEntry
         backgroundColor: "transparent"
         // Chromium and libmpv compose in the same Qt Quick OpenGL scene.
