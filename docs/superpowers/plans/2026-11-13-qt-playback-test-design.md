@@ -6,6 +6,16 @@ display, running PulseAudio server, and `CI=true`. Run once with
 `LIBGL_ALWAYS_SOFTWARE=1`, and separately without that variable on the intended
 physical graphics stack. Software Xvfb evidence is not physical GPU evidence.
 
+For a Wayland run, set `ZENITH_QT_WAYLAND=1` inside a running compositor such as
+Weston, with `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` configured. X11 `DISPLAY`
+and ImageMagick capture are then unnecessary. The wrapper forces the native Qt
+Wayland platform and enables the CI-only `ZENITH_QT_DIAGNOSTICS=1` bridge.
+`diagnostic.capture` must return a composed `QQuickWindow.grabWindow()` PNG
+containing both MpvQt and WebEngine. Every pixel assertion remains mandatory.
+PNG dimensions must match the CDP viewport at device scale one; window-local
+coordinates use origin `(0,0)` instead of the X11 root-window position. A missing
+diagnostic API, invalid PNG, or absent movie pixels fails the Wayland run.
+
 Example inside the prepared Linux CI environment:
 
 ```sh
@@ -39,7 +49,8 @@ Acceptance assertions:
   cannot establish presented movie frames.
 - CDP `Input.dispatchMouseEvent` opens actual settings and continuously hovers
   the seek bar and every visible bottom-row button while ImageMagick captures
-  the X11 root surface. Every sample must retain blue movie pixels beneath HTML
+  the X11 root surface (or composed native Qt window on Wayland). Every sample
+  must retain blue movie pixels beneath HTML
   and opaque strokes in every icon, including individual rows and the lower
   quarter. CDP screenshots are deliberately not used as composition evidence.
 - Native fullscreen state and mini window resize are exercised while playback

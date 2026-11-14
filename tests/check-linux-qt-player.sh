@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
-# Actual Qt Quick/WebEngine + MpvQt playback. Run inside the CI X11/Pulse session.
+# Actual Qt Quick/WebEngine + MpvQt playback in a CI X11 or Wayland/Pulse session.
 set -euo pipefail
 source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 : "${ZENITH_QT_PLAYER:?Set ZENITH_QT_PLAYER to the built or packaged helper launcher}"
 case "${CI:-}" in 1|true) ;; *) echo 'Qt CDP tests require CI=true; remote debugging is never enabled for normal playback.' >&2; exit 1;; esac
 test -x "$ZENITH_QT_PLAYER"
-: "${DISPLAY:?Run in an X11 session (xvfb-run is supported)}"
-for tool in node python3 ffmpeg ffprobe import convert parec pactl; do command -v "$tool" >/dev/null; done
+if [[ "${ZENITH_QT_WAYLAND:-0}" = 1 ]]; then
+  : "${WAYLAND_DISPLAY:?Run inside a Wayland compositor session}"
+  export QT_QPA_PLATFORM=wayland ZENITH_QT_DIAGNOSTICS=1
+else
+  : "${DISPLAY:?Run in an X11 session (xvfb-run is supported)}"
+  command -v import >/dev/null
+fi
+for tool in node python3 ffmpeg ffprobe parec pactl; do command -v "$tool" >/dev/null; done
 node -e 'if(Number(process.versions.node.split(".")[0])<22||typeof WebSocket!=="function")throw Error("Node 22+ global WebSocket required")'
 python3 -c 'from PIL import Image'
 export ZENITH_QT_ARTIFACTS="${ZENITH_QT_ARTIFACTS:-$(mktemp -d /tmp/zenith-qt-player.XXXXXXXX)}"

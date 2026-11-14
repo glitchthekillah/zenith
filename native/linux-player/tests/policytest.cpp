@@ -4,6 +4,14 @@
 class PolicyTest : public QObject {
     Q_OBJECT
 private slots:
+    void captureRequiresBothExplicitCiFlags() {
+        QVERIFY(!PlayerPolicy::diagnosticCapture("", "1"));
+        QVERIFY(!PlayerPolicy::diagnosticCapture("true", ""));
+        QVERIFY(!PlayerPolicy::diagnosticCapture("true", "true"));
+        QVERIFY(!PlayerPolicy::diagnosticCapture("false", "1"));
+        QVERIFY(PlayerPolicy::diagnosticCapture("true", "1"));
+        QVERIFY(PlayerPolicy::diagnosticCapture("1", "1"));
+    }
     void rejectsExecutableMedia() {
         QVERIFY(!PlayerPolicy::mediaUri("file:///etc/passwd"));
         QVERIFY(!PlayerPolicy::mediaUri("edl://https://example.com/movie"));

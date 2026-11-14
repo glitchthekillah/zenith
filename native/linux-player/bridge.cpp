@@ -7,6 +7,8 @@
 #include <QNetworkRequest>
 #include <QTimer>
 #include <QSet>
+#include <QBuffer>
+#include <QImage>
 #include <cstdio>
 #include <cmath>
 #include <algorithm>
@@ -86,6 +88,21 @@ void Bridge::request(const QString &id, const QString &action, const QVariantMap
         return;
     }
     if (!bootstrapped) { reject(id); return; }
+    if (action == "diagnostic.capture") {
+        if (!PlayerPolicy::diagnosticCapture(qEnvironmentVariable("CI"), qEnvironmentVariable("ZENITH_QT_DIAGNOSTICS")) || !window) {
+            reject(id, "Unsupported player request."); return;
+        }
+        // Capture the final Qt Quick scene, including the libmpv framebuffer
+        // underneath Chromium. No file paths or arbitrary output destinations.
+        const QImage image = window->grabWindow();
+        QByteArray png;
+        QBuffer buffer(&png);
+        if (image.isNull() || !buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG")) {
+            reject(id, "Player capture failed."); return;
+        }
+        finish(id, QVariantMap{{"png", QString::fromLatin1(png.toBase64())}, {"width", image.width()}, {"height", image.height()}});
+        return;
+    }
     if (action == "http") { http(id, args); return; }
     if (action == "media.open") {
         if (!video || !PlayerPolicy::mediaUri(args.value("uri").toString())) { reject(id, "Only original HTTP media is supported."); return; }

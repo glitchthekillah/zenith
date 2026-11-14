@@ -12,9 +12,11 @@ const exec = promisify(execFile), sleep = ms => new Promise(r => setTimeout(r, m
 const require = createRequire(import.meta.url);
 const {createServer: mediaServer} = require('./media-range-server.cjs');
 const [application, assets] = process.argv.slice(2);
+const wayland=process.env.ZENITH_QT_WAYLAND==='1';
 assert(application && assets, 'Usage: node qt-player-cdp.mjs HELPER ASSETS');
 assert(['1', 'true'].includes(process.env.CI), 'CDP is restricted to CI');
 assert.equal(process.env.QTWEBENGINE_REMOTE_DEBUGGING, '127.0.0.1:9223');
+if(wayland){assert(process.env.WAYLAND_DISPLAY,'Wayland compositor required');assert.equal(process.env.QT_QPA_PLATFORM,'wayland');assert.equal(process.env.ZENITH_QT_DIAGNOSTICS,'1');}
 assert.equal(typeof WebSocket, 'function', 'Node 22+ required');
 const artifacts = path.resolve(process.env.ZENITH_QT_ARTIFACTS || '/tmp/zenith-qt-player');
 await mkdir(artifacts, {recursive:true});
@@ -95,10 +97,27 @@ async function audioPeak() {
   for(let i=Math.max(0,bytes.length-24000);i+1<bytes.length;i+=2)peak=Math.max(peak,Math.abs(bytes.readInt16LE(i)));
   return peak;
 }
-async function capture(name){const file=path.join(artifacts,`${name}.png`);await exec('import',['-window','root',file]);return file;}
+async function capture(name){
+  const file=path.join(artifacts,`${name}.png`);
+  if(wayland){
+    // grabWindow captures the composed QQuickWindow, including MpvQt movie and
+    // WebEngine UI. A WebEngine/CDP page screenshot would omit the movie.
+    const frame=await native('diagnostic.capture');
+    assert(frame&&typeof frame.png==='string','Missing native Wayland capture');
+    const png=Buffer.from(frame.png,'base64');
+    assert(png.length>24&&png.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])),'Invalid native capture PNG');
+    assert.equal(png.readUInt32BE(16),frame.width);assert.equal(png.readUInt32BE(20),frame.height);
+    const viewport=await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})');
+    assert.equal(viewport.dpr,1,'Native window coordinate assertions require scale factor 1');
+    assert.equal(frame.width,viewport.width,'Qt capture and CDP viewport widths differ');
+    assert.equal(frame.height,viewport.height,'Qt capture and CDP viewport heights differ');
+    await writeFile(file,png);
+  }else await exec('import',['-window','root',file]);
+  return file;
+}
 async function blueFrame(name) {
   const image=await capture(name);
-  const point=await js(`(()=>{const r=document.querySelector('#player video').getBoundingClientRect();return [Math.round(screenX+r.x+r.width*.55),Math.round(screenY+r.y+r.height*.4)]})()`);
+  const point=await js(`(()=>{const r=document.querySelector('#player video').getBoundingClientRect();return [Math.round(${wayland?'0':'screenX'}+r.x+r.width*.55),Math.round(${wayland?'0':'screenY'}+r.y+r.height*.4)]})()`);
   await exec('python3',['-c',`from PIL import Image\nimport json,sys\nr,g,b=Image.open(sys.argv[1]).convert('RGB').getpixel(tuple(json.loads(sys.argv[2])))\nassert b>200 and r<45 and g<45,('Native movie absent after window/seek transition',r,g,b)`,image,JSON.stringify(point)]);
 }
 async function pointer(point,type='mouseMoved') {await command('Input.dispatchMouseEvent',{type,x:point.x,y:point.y,button:type==='mouseMoved'?'none':'left',clickCount:type==='mouseMoved'?0:1});}
@@ -113,7 +132,8 @@ async function replace(id) {
   await js(`(async()=>{const p=await import(new URL('js/player.js',document.baseURI));await p.close(true);await p.play(${JSON.stringify(item(id))},{start:0});return true})()`);
   await until(async()=>{const s=await state();return s?.width===(id==='moving'?1280:640)&&s.time>.3;},`${id} replacement metadata`);
 }
-// Analyze actual root-window pixels. CDP screenshots alone omit the native film.
+// Analyze actual root-window pixels (X11) or composed QQuickWindow (Wayland).
+// CDP screenshots alone omit the native film.
 // Keep reference opaque icon coordinates separately for EACH icon and EACH row
 // through its lower quarter; a sliced bottom row cannot hide in an average.
 const pixelScript=String.raw`
@@ -164,6 +184,7 @@ try {
   await pointer({x:300,y:200});
   await until(()=>js(`Number(getComputedStyle(document.querySelector('.pl-ui')).opacity)>.9`),'controls visible');
   const geometry=await js(`(()=>{const boxes=[...document.querySelectorAll('.pl-row button svg')].map(e=>e.getBoundingClientRect()).filter(r=>r.width>8&&r.height>8);const v=document.querySelector('#player video').getBoundingClientRect();const targets=[...document.querySelectorAll('.pl-row button,.pl-seek')].map(e=>e.getBoundingClientRect()).filter(r=>r.width>0).map(r=>({x:r.x+r.width/2,y:r.y+r.height/2}));return{icons:boxes.map(r=>[Math.floor(r.x),Math.floor(r.y),Math.ceil(r.width),Math.ceil(r.height)]),movie:[v.x+v.width*.55,v.y+v.height*.4],targets,offset:[Math.round(window.screenX),Math.round(window.screenY)],dpr:devicePixelRatio}})()`);
+  if(wayland)geometry.offset=[0,0];
   assert.equal(geometry.dpr,1,'Pixel assertions require scale factor 1');
   assert(geometry.icons.length>=4,'Missing actual player icons');assert(geometry.targets.length>=5);
   const reference=await capture('controls-reference');
@@ -188,7 +209,7 @@ try {
   await replace('moving');await progress('moving original');
   // A moving fixture proves new pictures, rather than only a ticking clock.
   const a=await capture('moving-before');await sleep(800);const b=await capture('moving-after');
-  const center=await js(`(()=>{const r=document.querySelector('#player video').getBoundingClientRect();return [Math.round(screenX+r.x+r.width*.3),Math.round(screenY+r.y+r.height*.3),Math.round(r.width*.4),Math.round(r.height*.3)]})()`);
+  const center=await js(`(()=>{const r=document.querySelector('#player video').getBoundingClientRect();return [Math.round(${wayland?'0':'screenX'}+r.x+r.width*.3),Math.round(${wayland?'0':'screenY'}+r.y+r.height*.3),Math.round(r.width*.4),Math.round(r.height*.3)]})()`);
   await exec('python3',['-c',`from PIL import Image,ImageChops,ImageStat\nimport json,sys\nx,y,w,h=json.loads(sys.argv[3]);box=(x,y,x+w,y+h)\na=Image.open(sys.argv[1]).convert('RGB').crop(box);b=Image.open(sys.argv[2]).convert('RGB').crop(box)\nassert max(ImageStat.Stat(ImageChops.difference(a,b)).mean)>3,'Moving movie presents stale pixels'`,a,b,JSON.stringify(center)]);
   for(const target of [18,4,23,9]){
     await js(`window.zenithQt.controller.seek(${target})`);await progress(`moving seek ${target}`,target);
