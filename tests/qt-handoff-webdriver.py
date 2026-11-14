@@ -16,6 +16,7 @@ import threading
 import time
 import urllib.request
 import urllib.error
+import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -187,7 +188,7 @@ try:
         try:
             request("GET", "/status")
             break
-        except urllib.error.URLError:
+        except (urllib.error.URLError, http.client.RemoteDisconnected):
             assert time.monotonic() < deadline, "tauri-driver startup timed out"
             time.sleep(.1)
     created = request("POST", "/session", {"capabilities": {"alwaysMatch": {
