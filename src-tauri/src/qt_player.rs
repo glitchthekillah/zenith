@@ -46,12 +46,30 @@ pub async fn open(app: AppHandle, players: Players, payload: Value) -> Result<Va
         tokio::pin!(deadline);
         let mut ready = false;
         let mut failed = false;
+        let mut commands_open = true;
+        let mut closing = false;
+        let mut acknowledged = false;
         let mut playback = Value::Null;
         loop {
             tokio::select! {
-                _ = &mut deadline, if !ready => { failed = true; break; }
-                command = rx.recv() => {
-                    let Some(command) = command else { break; };
+                _ = &mut deadline, if !ready || closing => { failed = true; break; }
+                command = rx.recv(), if commands_open => {
+                    let command = match command {
+                        Some(command) => command,
+                        None => {
+                            // Replacement drops the retired session's last
+                            // sender. EOF on this internal command channel is
+                            // not permission to tear down the child's stdin:
+                            // its JS still needs to report stopped playback.
+                            commands_open = false;
+                            if closing { continue; }
+                            json!({"type":"close"})
+                        }
+                    };
+                    if command.get("type").and_then(Value::as_str) == Some("close") {
+                        closing = true;
+                        deadline.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(4));
+                    }
                     let mut encoded = match serde_json::to_vec(&command) { Ok(value) => value, Err(_) => break };
                     encoded.push(b'\n');
                     if !matches!(tokio::time::timeout(Duration::from_secs(2), stdin.write_all(&encoded)).await, Ok(Ok(()))) { break; }
@@ -67,7 +85,7 @@ pub async fn open(app: AppHandle, players: Players, payload: Value) -> Result<Va
                             }
                         }
                         Some("discord") if players.0.lock().unwrap().current(id) => { crate::discord::set(event.get("data").cloned().unwrap_or(Value::Null)); }
-                        Some("closed") => { playback = event.get("playback").filter(|value| value.is_object()).cloned().unwrap_or(Value::Null); break; }
+                        Some("closed") => { acknowledged = true; playback = event.get("playback").filter(|value| value.is_object()).cloned().unwrap_or(Value::Null); break; }
                         Some("error") => { failed = true; break; }
                         _ => {}
                     }
@@ -75,7 +93,11 @@ pub async fn open(app: AppHandle, players: Players, payload: Value) -> Result<Va
             }
         }
         drop(stdin);
-        if tokio::time::timeout(Duration::from_secs(2), child.wait()).await.is_err() { let _ = child.kill().await; }
+        match tokio::time::timeout(Duration::from_secs(2), child.wait()).await {
+            Ok(Ok(status)) if status.success() => {}
+            _ => { failed = true; let _ = child.kill().await; }
+        }
+        failed |= !acknowledged;
         let owned = players.0.lock().unwrap().finish(id);
         if owned {
             crate::discord::set(Value::Null);
