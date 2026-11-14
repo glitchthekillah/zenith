@@ -12,12 +12,15 @@ mod weblogin;
 mod window;
 #[cfg(target_os = "linux")]
 mod qt_player;
+#[cfg(any(target_os = "linux", test))]
 mod qt_lifecycle;
 #[cfg(target_os = "linux")]
 mod linux_renderer;
 
 use serde_json::{json, Value};
-use tauri::{Manager, AppHandle, Emitter, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+#[cfg(target_os = "linux")]
+use tauri::Manager;
+use tauri::{AppHandle, Emitter, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 pub fn send(app: &AppHandle, channel: &str, data: Value) {
     #[cfg(target_os = "linux")]

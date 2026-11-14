@@ -11,3 +11,6 @@ dist-current/
 .env.*
 src-tauri/target/
 src-tauri/gen/
+
+# Generated, tested Qt/libmpv runtime is packaged but never committed.
+native/linux-player/runtime/

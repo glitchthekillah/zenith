@@ -1,12 +1,17 @@
 name: Linux Qt playback candidate
 on:
   workflow_dispatch:
+    inputs:
+      package_release:
+        description: Build and verify both Linux packages after Qt runtime acceptance
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   player:
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -18,7 +23,7 @@ jobs:
       - name: Install media build and test dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends cmake ninja-build pkg-config libmpv-dev libegl1-mesa-dev libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libnss3 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libxss1 libxshmfence1 libdbus-1-3 libpulse0 libasound2 gdb curl ffmpeg imagemagick python3-pil xvfb xauth pulseaudio pulseaudio-utils dbus-x11
+          sudo apt-get install -y --no-install-recommends cmake ninja-build pkg-config libmpv-dev libegl1-mesa-dev libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libnss3 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libxss1 libxshmfence1 libdbus-1-3 libpulse0 libasound2 gdb curl weston ffmpeg imagemagick python3-pil xvfb xauth pulseaudio pulseaudio-utils dbus-x11
           python3 -m pip install aqtinstall==3.3.0
       - name: Install Qt SDK
         run: |
@@ -55,12 +60,99 @@ jobs:
           export QT_PLUGIN_PATH="$QT_ROOT/plugins" QML_IMPORT_PATH="$QT_ROOT/qml"
           export QTWEBENGINEPROCESS_PATH="$QT_ROOT/libexec/QtWebEngineProcess"
           export QTWEBENGINE_RESOURCES_PATH="$QT_ROOT/resources" QTWEBENGINE_LOCALES_PATH="$QT_ROOT/translations/qtwebengine_locales"
+          sudo sysctl -w kernel.core_pattern=/tmp/zenith-qt-core.%p
+          ulimit -c unlimited
           pulseaudio --start --exit-idle-time=-1
           ZENITH_QT_PLAYER=/tmp/qt-player-stage/bin/zenith-qt-player dbus-run-session -- xvfb-run -a bash tests/check-linux-qt-player.sh
+      - name: Read fixture-only Qt crash stack
+        if: failure()
+        run: |
+          mkdir -p /tmp/qt-player-evidence
+          export LD_LIBRARY_PATH="$QT_ROOT/lib:/tmp/qt-player-stage/lib"
+          for core in /tmp/zenith-qt-core.*; do
+            test -f "$core" || continue
+            gdb -batch -ex 'set pagination off' -ex 'thread apply all bt' /tmp/qt-player-stage/bin/zenith-qt-player "$core" > /tmp/qt-player-evidence/core-stack.txt 2>&1
+          done
+      - name: Assemble private Qt player runtime
+        if: ${{ inputs.package_release }}
+        run: python3 scripts/bundle-qt-player.py "$QT_ROOT" /tmp/qt-player-stage native/linux-player/runtime
+      - name: Verify isolated bundled Qt runtime
+        if: ${{ inputs.package_release }}
+        env:
+          CI: 'true'
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          QTWEBENGINE_DISABLE_SANDBOX: '1'
+          ZENITH_QT_DIAGNOSTICS: '1'
+          ZENITH_QT_ARTIFACTS: /tmp/qt-bundled-evidence
+        run: |
+          ZENITH_QT_PLAYER="$PWD/native/linux-player/runtime/run-player" dbus-run-session -- xvfb-run -a bash tests/check-linux-qt-player.sh
+      - name: Verify bundled Qt Wayland rendering
+        if: ${{ inputs.package_release }}
+        env:
+          CI: 'true'
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          QTWEBENGINE_DISABLE_SANDBOX: '1'
+          ZENITH_QT_DIAGNOSTICS: '1'
+          ZENITH_QT_ARTIFACTS: /tmp/qt-wayland-evidence
+          ZENITH_QT_WAYLAND: '1'
+        run: |
+          export XDG_RUNTIME_DIR=$(mktemp -d /tmp/zenith-qt-wayland.XXXXXXXX)
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export WAYLAND_DISPLAY=wayland-zenith
+          weston --backend=headless-backend.so --use-gl --socket=wayland-zenith --width=1280 --height=800 --idle-time=0 >/tmp/qt-wayland-evidence-weston.log 2>&1 &
+          compositor=$!
+          trap 'kill "$compositor" 2>/dev/null || true' EXIT
+          for attempt in {1..50}; do [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]] && break; sleep .2; done
+          test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+          ZENITH_QT_PLAYER="$PWD/native/linux-player/runtime/run-player" dbus-run-session -- bash tests/check-linux-qt-player.sh
+      - name: Build self-contained Linux packages
+        if: ${{ inputs.package_release }}
+        run: |
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libnotify-dev patchelf libfuse2 webkit2gtk-driver
+          npx tauri build --bundles appimage,deb --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          cargo install tauri-driver --version 2.0.6 --locked
+      - name: Verify packaged Qt handoff and restore
+        if: ${{ inputs.package_release }}
+        env:
+          CI: 'true'
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          QTWEBENGINE_DISABLE_SANDBOX: '1'
+          ZENITH_QT_DIAGNOSTICS: '1'
+          QTWEBENGINE_REMOTE_DEBUGGING: '127.0.0.1:9223'
+        run: |
+          image=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' -print -quit)
+          (cd /tmp && "$GITHUB_WORKSPACE/$image" --appimage-extract >/dev/null)
+          find /tmp/squashfs-root -path '*/linux-player/run-player' -executable | grep .
+          export PULSE_SINK=zenith-qt-host-test
+          pactl load-module module-null-sink sink_name="$PULSE_SINK"
+          ZENITH_QT_HOST_APPLICATION=/tmp/squashfs-root/AppRun ZENITH_QT_HANDOFF_ARTIFACTS=/tmp/qt-handoff-appimage dbus-run-session -- xvfb-run -a python3 tests/qt-handoff-webdriver.py
+          sudo apt-get install -y ./src-tauri/target/release/bundle/deb/*.deb
+          ZENITH_QT_HOST_APPLICATION=/usr/bin/zenith ZENITH_QT_HANDOFF_ARTIFACTS=/tmp/qt-handoff-deb dbus-run-session -- xvfb-run -a python3 tests/qt-handoff-webdriver.py
+      - name: Collect verified packages
+        if: ${{ inputs.package_release }}
+        run: |
+          mkdir linux-release
+          cp src-tauri/target/release/bundle/appimage/*.AppImage linux-release/
+          cp src-tauri/target/release/bundle/deb/*.deb linux-release/
+          (cd linux-release && sha256sum *.AppImage *.deb > SHA256SUMS)
+      - name: Store unsigned Linux packages for local signing
+        if: ${{ inputs.package_release }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: zenith-linux-x64
+          path: linux-release/*
+          if-no-files-found: error
+          retention-days: 7
       - name: Store Qt evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: qt-player-evidence
-          path: /tmp/qt-player-evidence/
+          path: |
+            /tmp/qt-player-evidence/
+            /tmp/qt-bundled-evidence/
+            /tmp/qt-wayland-evidence/
+            /tmp/qt-handoff-appimage/
+            /tmp/qt-handoff-deb/
+            /tmp/qt-wayland-evidence-weston.log
           if-no-files-found: ignore

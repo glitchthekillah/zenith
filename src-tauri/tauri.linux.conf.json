@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "resources": {
+      "../native/linux-player/runtime/": "linux-player/",
+      "../app/": "player-assets/"
+    },
+    "linux": {
+      "deb": {"depends": ["libnotify4"]},
+      "appimage": {"bundleMediaFramework": false}
+    }
+  }
+}
