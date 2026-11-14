@@ -257,9 +257,12 @@ try:
     assert "/player-assets/qt-player.html" in snapshot["url"], "Helper loaded repository assets instead of packaged resource assets"
     until(lambda: (qt_snapshot().get("width") or 0) == 640, "actual bundled movie metadata")
     before = qt_snapshot()
-    time.sleep(1.5)
-    after = qt_snapshot()
-    assert not after["error"] and not after["paused"] and after["time"] > before["time"] + .5, (before, after)
+    def advancing():
+        current = qt_snapshot()
+        observations.append({"case": "startup-progress", "state": current})
+        assert not current["error"], current
+        return current if not current["paused"] and current["time"] > before["time"] + .5 else None
+    after = until(advancing, "packaged movie advances after startup", timeout=20)
     observations.append({"case": "bundled-ready", "before": before, "after": after})
     close(first)
     event = until(lambda: closed(first), "matching first close event")

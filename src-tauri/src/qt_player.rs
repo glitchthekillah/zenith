@@ -27,8 +27,10 @@ pub async fn open(app: AppHandle, players: Players, payload: Value) -> Result<Va
     if boot.len() > 4 * 1024 * 1024 { return Err("Playback request is too large".into()); }
     boot.push(b'\n');
     let (helper, assets) = paths(&app)?;
+    let diagnostics = matches!(std::env::var("CI").as_deref(), Ok("true" | "1"))
+        && std::env::var("ZENITH_QT_DIAGNOSTICS").as_deref() == Ok("1");
     let mut child = Command::new(helper).arg("--assets").arg(assets)
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(if diagnostics { Stdio::inherit() } else { Stdio::null() })
         .kill_on_drop(true).spawn().map_err(|_| "The bundled Linux player could not start")?;
     let mut stdin = child.stdin.take().ok_or("The player connection could not open")?;
     tokio::time::timeout(Duration::from_secs(10), stdin.write_all(&boot)).await
