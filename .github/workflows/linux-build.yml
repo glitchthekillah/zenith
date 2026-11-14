@@ -190,7 +190,7 @@ jobs:
       - name: Install packaged-app test tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev webkit2gtk-driver libnotify4 libfuse2 libxdo3 libayatana-appindicator3-1 xvfb xauth dbus-x11 pulseaudio pulseaudio-utils ffmpeg
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev webkit2gtk-driver libnotify4 libfuse2 libxdo3 libayatana-appindicator3-1 xvfb xauth dbus-x11 pulseaudio pulseaudio-utils ffmpeg openbox xdotool
           cargo install tauri-driver --version 2.0.6 --locked
       - name: Fetch the existing unsigned packages
         env:
@@ -204,6 +204,7 @@ jobs:
           QTWEBENGINE_DISABLE_SANDBOX: '1'
           ZENITH_QT_DIAGNOSTICS: '1'
           QTWEBENGINE_REMOTE_DEBUGGING: '127.0.0.1:9223'
+          ZENITH_QT_TEST_DRAG: '1'
         run: |
           mkdir -p /tmp/zenith-media-fixtures
           ffmpeg -y -hide_banner -loglevel error -f lavfi -i color=c=blue:size=640x360:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 60 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a ac3 -ac 6 /tmp/zenith-media-fixtures/video.mkv
@@ -212,10 +213,10 @@ jobs:
           pactl load-module module-null-sink sink_name="$PULSE_SINK"
           image=$(find /tmp/qt-existing-packages -name '*.AppImage' -print -quit)
           (cd /tmp && "$image" --appimage-extract >/dev/null)
-          ZENITH_QT_HOST_APPLICATION=/tmp/squashfs-root/AppRun ZENITH_QT_HANDOFF_ARTIFACTS=/tmp/qt-handoff-appimage dbus-run-session -- xvfb-run -a python3 tests/qt-handoff-webdriver.py
+          ZENITH_QT_HOST_APPLICATION=/tmp/squashfs-root/AppRun ZENITH_QT_HANDOFF_ARTIFACTS=/tmp/qt-handoff-appimage dbus-run-session -- xvfb-run -a sh -c 'openbox >/tmp/qt-openbox-appimage.log 2>&1 & python3 tests/qt-handoff-webdriver.py'
           deb=$(find /tmp/qt-existing-packages -name '*.deb' -print -quit)
           sudo apt-get install -y "$deb"
-          ZENITH_QT_HOST_APPLICATION=/usr/bin/zenith ZENITH_QT_HANDOFF_ARTIFACTS=/tmp/qt-handoff-deb dbus-run-session -- xvfb-run -a python3 tests/qt-handoff-webdriver.py
+          ZENITH_QT_HOST_APPLICATION=/usr/bin/zenith ZENITH_QT_HANDOFF_ARTIFACTS=/tmp/qt-handoff-deb dbus-run-session -- xvfb-run -a sh -c 'openbox >/tmp/qt-openbox-deb.log 2>&1 & python3 tests/qt-handoff-webdriver.py'
       - name: Store package verification evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

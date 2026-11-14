@@ -280,6 +280,18 @@ try:
         return current if not current["paused"] and current["time"] > before["time"] + .5 else None
     after = until(advancing, "packaged movie advances after startup", timeout=20)
     observations.append({"case": "bundled-ready", "before": before, "after": after})
+    if os.environ.get("ZENITH_QT_TEST_DRAG") == "1":
+        # XTest creates an actual native pointer grab, unlike CDP mouse events.
+        # A window manager is required to honour Qt's system-move request.
+        pointer = qt_snapshot("(()=>{const r=document.querySelector('.pl-title').getBoundingClientRect();return {x:screenX,y:screenY,pressX:Math.round(screenX+r.x+Math.min(160,r.width/2)),pressY:Math.round(screenY+r.y+r.height/2)}})()")
+        subprocess.run(["xdotool", "mousemove", "--sync", str(pointer["pressX"]), str(pointer["pressY"]),
+                        "mousedown", "1", "sleep", ".3", "mousemove", "--sync", str(pointer["pressX"]+80),
+                        str(pointer["pressY"]+50), "sleep", ".5", "mouseup", "1"], check=True)
+        moved = qt_snapshot("({x:screenX,y:screenY})")
+        assert abs(moved["x"]-pointer["x"])+abs(moved["y"]-pointer["y"])>20, (pointer,moved)
+        assert parent()["visible"], "Moving the player hid the browsing window"
+        observations.append({"case":"native-title-drag","before":pointer,"after":moved})
+        print("PASS real title-bar pointer drag moves the normal playback window", flush=True)
     qt_snapshot("(()=>{document.querySelector('[data-p=close]').click();return true})()")
     event = until(lambda: closed(first), "matching first close event")
     assert not event.get("error"), event
