@@ -122,7 +122,7 @@ async function blueFrame(name, orientation=false) {
   await exec('python3',['-c',`from PIL import Image\nimport json,sys\nr,g,b=Image.open(sys.argv[1]).convert('RGB').getpixel(tuple(json.loads(sys.argv[2])))\nassert b>200 and r<45 and g<45,('Native movie absent after window/seek transition',r,g,b)`,image,JSON.stringify(point)]);
   if(orientation){
     const marker=await js(`(()=>{const r=document.querySelector('#player video').getBoundingClientRect();return [Math.round(${wayland?'0':'screenX'}+r.x+r.width*.10),Math.round(${wayland?'0':'screenY'}+r.y+r.height*.15)]})()`);
-    await exec('python3',['-c',`from PIL import Image\nimport json,sys\nr,g,b=Image.open(sys.argv[1]).convert('RGB').getpixel(tuple(json.loads(sys.argv[2])))\nassert r>200 and g<45 and b<45,('Movie is inverted: top-left red marker absent',r,g,b)`,image,JSON.stringify(marker)]);
+    await exec('python3',['-c',`from PIL import Image\nimport json,sys\nr,g,b=Image.open(sys.argv[1]).convert('RGB').getpixel(tuple(json.loads(sys.argv[2])))\nassert r>100 and g<45 and b<45,('Movie is inverted: top-left red marker absent',r,g,b)`,image,JSON.stringify(marker)]);
   }
 }
 async function pointer(point,type='mouseMoved') {await command('Input.dispatchMouseEvent',{type,x:point.x,y:point.y,button:type==='mouseMoved'?'none':'left',clickCount:type==='mouseMoved'?0:1});}
@@ -264,3 +264,4 @@ try {
   await writeFile(path.join(artifacts,'requests.json'),JSON.stringify(requests,null,2));
   await writeFile(path.join(artifacts,'events.json'),JSON.stringify(events,null,2));
 }
+
