@@ -27,7 +27,7 @@ jobs:
           python3 -m pip install aqtinstall==3.3.0
       - name: Install Qt SDK
         run: |
-          python3 -m aqt install-qt linux desktop 6.8.3 linux_gcc_64 --outputdir "$RUNNER_TEMP/qt" --modules qtwebengine qtwebchannel qtpositioning qt5compat qtshadertools
+          python3 -m aqt install-qt linux desktop 6.8.3 linux_gcc_64 --outputdir "$RUNNER_TEMP/qt" --modules qtwebengine qtwebchannel qtpositioning qtserialport qt5compat qtshadertools
           echo "QT_ROOT=$RUNNER_TEMP/qt/6.8.3/gcc_64" >> "$GITHUB_ENV"
       - name: Audit Qt graphics runtime
         run: |
