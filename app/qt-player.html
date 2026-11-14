@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" data-qt-player>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' qrc:; style-src 'self' 'unsafe-inline'; img-src http: https: data: blob:; media-src 'none'; connect-src 'none'; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Zenith Player</title>
+<link rel="stylesheet" href="css/app.css">
+<style>
+:root{--tb:0px}html,body,#player,#player video{background:transparent!important}body{margin:0}#player{inset:0}#app{display:none}#qt-status{position:fixed;inset:0;display:grid;place-items:center;padding:40px;color:white;background:#08080e}#qt-status[hidden]{display:none}
+</style>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<script type="module" src="js/qt-player.js"></script>
+</head>
+<body>
+<div id="app"><main id="view"></main></div>
+<div id="player" hidden></div>
+<div id="toasts" aria-live="polite"></div>
+<div id="qt-status" role="status" hidden></div>
+</body>
+</html>

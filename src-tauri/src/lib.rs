@@ -11,12 +11,19 @@ mod update;
 mod weblogin;
 mod window;
 #[cfg(target_os = "linux")]
+mod qt_player;
+mod qt_lifecycle;
+#[cfg(target_os = "linux")]
 mod linux_renderer;
 
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{Manager, AppHandle, Emitter, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 pub fn send(app: &AppHandle, channel: &str, data: Value) {
+    #[cfg(target_os = "linux")]
+    if channel == "media-key" {
+        if let (Some(players), Some(key)) = (app.try_state::<qt_player::Players>(), data.as_str()) { qt_player::media_key(&players, key); }
+    }
     let _ = app.emit_to("main", "zenith", json!({ "channel": channel, "data": data }));
 }
 
@@ -28,6 +35,21 @@ pub fn notify(app: &AppHandle, title: &str, body: &str) {
 }
 
 // ── Commands the page can call (see app/js/desktop.js) ──────────────────
+#[cfg(target_os = "linux")]
+#[tauri::command]
+async fn qt_play(app: AppHandle, state: tauri::State<'_, qt_player::Players>, payload: Value) -> Result<Value, String> {
+    qt_player::open(app, state.inner().clone(), payload).await
+}
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
+async fn qt_play(payload: Value) -> Result<Value, String> { let _ = payload; Err("Qt playback is Linux only".into()) }
+#[cfg(target_os = "linux")]
+#[tauri::command]
+fn qt_close(state: tauri::State<'_, qt_player::Players>, id: u64) { qt_player::close(&state, id); }
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
+fn qt_close(id: u64) { let _ = id; }
+
 #[tauri::command]
 async fn http(url: String, opts: Option<http::Opts>) -> Result<http::Resp, String> { http::request(&url, opts.unwrap_or_default()).await }
 #[tauri::command]
@@ -170,7 +192,7 @@ pub fn run() {
     }
     let builder = tauri::Builder::default();
     #[cfg(target_os = "linux")]
-    let builder = builder.plugin(tauri_plugin_video::init());
+    let builder = builder.manage(qt_player::Players::default());
     let app = builder
         .plugin(tauri_plugin_single_instance::init(|app, _, _| { let _ = window::action(app, "focus", None); }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -180,7 +202,7 @@ pub fn run() {
         .manage(window::WinState(Default::default()))
         .manage(update::Pending::default())
         .manage(audio::Audio::default())
-        .invoke_handler(tauri::generate_handler![audio_open, audio_write, audio_flush, audio_close, http, http_forget, info, win, open, show_file, download, download_cancel, notify_cmd, update_check, update_install, discord_set, web_login, migrated])
+        .invoke_handler(tauri::generate_handler![qt_play, qt_close, audio_open, audio_write, audio_flush, audio_close, http, http_forget, info, win, open, show_file, download, download_cancel, notify_cmd, update_check, update_install, discord_set, web_login, migrated])
         .setup(|app| {
             let h = app.handle().clone();
             http::load(&h);
@@ -201,6 +223,10 @@ pub fn run() {
         .expect("error while starting Zenith");
     app.run(|app, e| {
         // A downloaded update installs when Zenith closes, like before
-        if let RunEvent::Exit = e { update::install(app, false); }
+        if let RunEvent::Exit = e {
+            #[cfg(target_os = "linux")]
+            if let Some(players) = app.try_state::<qt_player::Players>() { qt_player::shutdown(&players); }
+            update::install(app, false);
+        }
     });
 }

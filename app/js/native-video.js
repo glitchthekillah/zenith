@@ -2,6 +2,10 @@
 // Session cancellation is checked on both sides of async native allocation.
 export async function openNativeVideo(video, {url, controls, signal}, attach) {
   signal?.throwIfAborted();
+  if (globalThis.zenithQt && !attach) {
+    const {openQtNativeVideo} = await import('./qt-native-video.js');
+    return openQtNativeVideo(video, {url, signal});
+  }
   const factory = attach || (await import('../vendor/native-video.js')).attachTauriBackend;
   signal?.throwIfAborted();
   const controller = await factory(video, {

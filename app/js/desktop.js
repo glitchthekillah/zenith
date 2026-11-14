@@ -18,6 +18,8 @@
 
   window.zenithDesktop = {
     nativeVideo: /Linux/i.test(globalThis.navigator?.platform || '') && !/Android/i.test(globalThis.navigator?.userAgent || ''),
+    qtPlay: /Linux/i.test(globalThis.navigator?.platform || '') ? (payload) => invoke('qt_play', {payload}) : null,
+    qtClose: (id) => invoke('qt_close', {id}),
     http: (url, opts) => invoke('http', { url, opts: opts || {} }),
     forget: (origin) => invoke('http_forget', { origin: origin || null }),
     info: () => invoke('info'),

@@ -1,3 +1,5 @@
+import {deviceId} from './core.js';
+import {createQtHandoff} from './qt-handoff.js';
 // The video player: our own controls, subtitles, audio tracks, quality, speed,
 // chapters, skip intro, next episode, picture in picture and the mini player.
 import { $, esc, icon, fmtTime, settings, save, desktop, toast, emit, http, groups } from './core.js';
@@ -25,10 +27,34 @@ let S = null; // the current session
 const SPEEDS = [0.5, 0.75, 1, 1.1, 1.25, 1.5, 1.75, 2];
 const QUALITIES = [[0, 'Original file · direct play']];
 
-export const isOpen = () => !!S;
+const qtHandoff = desktop?.qtPlay && !desktop.qtPlayer ? createQtHandoff(desktop, {
+  onClosed: (data) => {
+    if (data.playback && typeof data.playback === 'object') {
+      // Only playback preferences return from the helper, never server state.
+      for (const key of ['volume','rate','subtitles','audioLang','subLang']) if (key in data.playback) settings.playback[key] = data.playback[key];
+      save();
+    }
+    emit('player', {open:false});
+    if (data.error) toast(data.error, 'bad');
+  },
+}) : null;
+export const isOpen = () => !!S || !!qtHandoff?.isOpen();
 
 // Open an item. queue: episodes that follow (for next episode and the episode list)
-export async function play(item, { start, queue = [] } = {}) {
+export async function play(item, { start, queue = [], selection } = {}) {
+  if (qtHandoff) {
+    if (item?._g) groups.use(item._g);
+    const active = groups.active();
+    const group = {id:active.id,name:active.name,servers:{jellyfin:active.servers.jellyfin}};
+    const preferences = JSON.parse(JSON.stringify({
+      groups:[group], playback:settings.playback, theme:settings.theme,
+      accent:settings.accent, look:settings.look, app:settings.app,
+    }));
+    const picked = selection || (await import('./watch.js')).prePick;
+    const result = await qtHandoff.play({settings:preferences,deviceId,group,item,options:{start,queue},selection:picked});
+    emit('player', {open:true,item});
+    return result;
+  }
   if (S) await close(true);
   // Play from the server the item lives on, and keep talking to that one
   if (item?._g) groups.use(item._g);
@@ -40,7 +66,7 @@ export async function play(item, { start, queue = [] } = {}) {
   const tr = listTracks(full);
   S.audio = pickAudio(tr.audio, tr.defaultAudio);
   // Picked on the info page just before pressing play
-  const pre = (await import('./watch.js')).prePick;
+  const pre = selection || (await import('./watch.js')).prePick;
   if (pre && pre.group === gid && (pre.for === full.Id || pre.for === full.SeriesId)) {
     // Direct play always keeps the original file quality.
     if (pre.audio != null && pre.audio !== '') {
@@ -504,7 +530,7 @@ async function onClick(e) {
   if (p === 'fullscreen') return fullscreen();
   if (p === 'pip') return pip();
   if (p === 'mini') return mini();
-  if (p === 'fill') { root().classList.toggle('fill'); b.classList.toggle('on'); return; }
+  if (p === 'fill') { root().classList.toggle('fill'); if (globalThis.zenithQt) globalThis.zenithQt.call('media.fit',{mode:root().classList.contains('fill')?'cover':'contain'}).catch(()=>{}); b.classList.toggle('on'); return; }
   if (p === 'info') { const old = $('.pl-info', root()); if (old) return old.remove(); const pb = S.pb, vs = pb.video || {}; root().insertAdjacentHTML('beforeend', `<div data-air-video-controls class="pl-info">${esc(pb.method)}<br>${esc(pb.source.Container || '')} · ${esc(vs.Codec || '')} ${vs.Width || ''}x${vs.Height || ''}<br>${pb.source.Bitrate ? Math.round(pb.source.Bitrate / 1e5) / 10 + ' Mbps' : ''}<br>${esc(pb.audio.find((a) => a.index === S.audio)?.label || '')}</div>`); return; }
   if (['subs', 'settings', 'episodes'].includes(p)) return menu(p);
   if (b.dataset.sub != null) {
@@ -545,16 +571,19 @@ async function fail(e) {
 }
 
 export async function close(quiet) {
+  if (qtHandoff?.isOpen()) { await qtHandoff.close(); return; }
   if (!S) return;
   groups.use(S.g);
   const s = S; S = null;
+  const p = s.offset + (s.v.currentTime || 0);
   s.nativeAbort?.abort();
   try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); } catch {}
   if (document.body.classList.contains('mini')) { await desktop?.win('mini', false); document.body.classList.remove('mini'); }
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   if (document.body.classList.contains('fullscreen')) { await desktop?.win('fullscreen', false); document.body.classList.remove('fullscreen'); }
-  const p = s.offset + (s.v.currentTime || 0);
-  if (s.pb) { jf.reportStop(s.item, s.pb, p); if (s.pb.hls) jf.stopTranscode(s.pb); }
+  if (s.pb) {
+    const stopped = jf.reportStop(s.item, s.pb, p);
+    if (desktop?.qtPlayer) await stopped; if (s.pb.hls) jf.stopTranscode(s.pb); }
   s.audioOut?.stop();
   await s.native?.destroy();
   s.hls?.destroy();

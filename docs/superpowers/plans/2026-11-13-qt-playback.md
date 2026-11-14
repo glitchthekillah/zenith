@@ -1,0 +1,23 @@
+# Qt/libmpv Linux playback replacement
+
+Goal: Remove GTK/WebKit video composition from Linux playback while retaining Zenith browsing and existing playback controls, strict original-file playback and self-contained packages.
+
+Decision: Use a bundled Qt Quick + Qt WebEngine + upstream MpvQt/libmpv player helper. Tauri remains the browsing host. Playback seamlessly hands off to a frameless Zenith player window; hide main only after the helper reports ready and restore it on close/crash. Reuse player.js and CSS in a dedicated trusted player HTML document. No credentials in arguments, URLs for the UI, files or logs: bootstrap JSON goes through private stdin. No remote HTML or privileged bridge on untrusted navigation. This avoids another GTK overlay or writing a custom video renderer. User already authorized autonomous fixes and release work, no additional design approval needed.
+
+Contract
+- Main desktop bridge exposes qtPlay(payload), qtClose(id). qtPlay returns {id} promptly; event qt-player-closed carries {id,error?}. Existing nativeVideo=true capability retained, but main delegates before allocating a GTK video session.
+- Bootstrap payload: {settings,deviceId,group,item,options:{start,queue},selection?}. Only the active server group is passed. Rust adds nonsensitive --assets argument pointing to app assets; helper executable resolved from bundled resources.
+- Helper boot reads one bounded JSON line from stdin. Subsequent lines {type:"close"} or {type:"media-key",data:string}. Stdout contains bounded JSON events {type:"ready"}, {type:"discord",data:object|null}, {type:"closed",playback?:object}, {type:"error",message:generic}. All debug goes stderr and is not exposed; no token-bearing URI logging.
+- QWebChannel publishes object bridge with slot request(id:string, action:string, args:QVariantMap), signal completed(id:string,result:QVariantMap), event(channel:string,data:QVariantMap). Completed envelope {ok:true,data:any} or {ok:false,error:generic}.
+- Actions: bootstrap; http({url,opts}) => {ok,status,headers,body,base64}; media.open({uri,volume,muted,rate}) => {generation}; media.play/pause/seek({position})/rate({value})/volume({value,muted})/track({kind,id?})/stop/fit({mode}); win({action,arg?}) => {fullscreen,mini,maximized,pinned}; discord({activity}); notify; exit. Reject unknown actions and non-http(s) original media.
+- Snapshot event channel media: {generation,currentTime,duration,width,height,paused,buffering,ended,volume,muted,rate,tracks:[{id,kind,label,language,selected}],error?}. Only current generation snapshots apply. Native errors generic, never include source URI. MpvQt owns GL lifecycle; no custom renderer.
+- JS Qt adapter implements the current native controller interface and HTMLMediaElement properties/events, takes signal/cancellation, restores element on destroy, preserves seeking intent and never triggers server conversion.
+
+Tasks
+1. Build Qt helper under native/linux-player with CMake, pinned upstream MpvQt (8a4d1ae9d1a1c5c94cd96bccb5330b83c1704b99) dynamically linked, upstream notices/source available. Qt6.8 on Ubuntu22 baseline, bundled local libmpv; Qt rendering OpenGL, WebEngine layer.enabled and transparent backing like Jellyfin; video-timing-offset=0. QObject/network/stdio bridge and native window controls.
+2. Add app/qt-player.html, app/js/qt-player.js and app/js/qt-native-video.js; reuse existing player controls. Parent delegate is implemented in separate module app/js/qt-handoff.js with cancellation/late-close guards. Meaningful JS tests for media state, cancellation and handoff.
+3. Add Rust qt_player.rs child lifecycle commands and events. Strip inherited AppImage GTK/Qt library overrides via helper launcher isolation. Kill child on application exit; restore parent on failure, validate session ownership.
+4. Bundle helper and Qt/MpvQt/mpv dependency closure for both Linux packages. Keep host graphics drivers; include runtime plugins/WebEngine resources and license/source notices. No user installs. Add actual Qt movie + HTML-control pointer capture/seek/fullscreen tests, software and hardware fallback paths. Compare against failed current pipeline using fixed public fixtures.
+5. Review branch, pass full JS/Rust/build/package checks and actual Qt runtime tests. Publish a new Linux candidate only with accurate evidence; leave stable/Windows/older changelogs unchanged. No AI commit attribution.
+
+Acceptance: no missing/sliced controls during actual hover; continuous movie frames and UI responsiveness; seek forward/back resumes pictures/audio; subtitle toggles and sparse PGS cannot stall normal playback; source replacement/end/close/fullscreen/mini work; no new service/terminal work for end users. Physical GPU remains distinct from software CI.

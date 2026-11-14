@@ -1,6 +1,6 @@
 [package]
 name = "zenith"
-version = "0.2.7-rc.5"
+version = "0.2.7-rc.6"
 description = "Watch, read and request from your own Jellyfin, Kavita and Seerr servers."
 authors = ["glitch"]
 license = "MIT"
@@ -23,7 +23,7 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "deflate"] }
-tokio = { version = "1", features = ["fs", "io-util", "time", "sync", "macros"] }
+tokio = { version = "1", features = ["fs", "io-util", "time", "sync", "macros", "process"] }
 futures-util = "0.3"
 base64 = "0.22"
 url = "2"
@@ -31,7 +31,6 @@ rusty-leveldb = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk-sys = "=2.0.2"
-tauri-plugin-video = { path = "../third-party/air-native-video", default-features = false, features = ["gstreamer-runtime"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography", "Win32_Foundation", "Win32_System_Memory", "Win32_Media_Audio"] }
