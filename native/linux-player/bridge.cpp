@@ -54,7 +54,7 @@ void Bridge::requestClose() {
     QTimer::singleShot(1500, this, &Bridge::shutdown);
 }
 void Bridge::mediaKey(const QString &key) {
-    static const QSet<QString> keys = {"play", "pause", "playpause", "stop", "next", "previous", "MediaPlay", "MediaPause", "MediaPlayPause", "MediaStop", "MediaNext", "MediaPrevious"};
+    static const QSet<QString> keys = {"toggle", "play", "pause", "playpause", "stop", "next", "previous", "MediaPlay", "MediaPause", "MediaPlayPause", "MediaStop", "MediaNext", "MediaPrevious"};
     if (keys.contains(key)) emit event("media-key", {{"key", key}});
 }
 void Bridge::shutdown() {
@@ -88,6 +88,13 @@ void Bridge::request(const QString &id, const QString &action, const QVariantMap
         return;
     }
     if (!bootstrapped) { reject(id); return; }
+    if (action == "diagnostic.state") {
+        if (!PlayerPolicy::diagnosticCapture(qEnvironmentVariable("CI"), qEnvironmentVariable("ZENITH_QT_DIAGNOSTICS"))) {
+            reject(id, "Unsupported player request."); return;
+        }
+        finish(id, QVariantMap{{"ready", sentReady}, {"visible", window && window->isVisible()}});
+        return;
+    }
     if (action == "diagnostic.capture") {
         if (!PlayerPolicy::diagnosticCapture(qEnvironmentVariable("CI"), qEnvironmentVariable("ZENITH_QT_DIAGNOSTICS")) || !window) {
             reject(id, "Unsupported player request."); return;

@@ -1,8 +1,11 @@
 #include "videoitem.h"
 #include <cmath>
 #include <algorithm>
+#include <cstdio>
 
 VideoItem::VideoItem(QQuickItem *parent) : MpvAbstractItem(parent) {
+    const bool ciDiagnostics = PlayerPolicy::diagnosticCapture(qEnvironmentVariable("CI"), qEnvironmentVariable("ZENITH_QT_DIAGNOSTICS"));
+    if (ciDiagnostics) std::fprintf(stderr, "Qt startup: upstream MpvAbstractItem constructor returned\n");
     reset();
     // All options are applied on MpvQt's worker. Never subscribe to or print mpv
     // log messages: HTTP errors can contain the complete authenticated URI.
@@ -20,6 +23,8 @@ VideoItem::VideoItem(QQuickItem *parent) : MpvAbstractItem(parent) {
     setProperty("hwdec", "auto-safe");
     setProperty("idle", true);
     connect(this, &MpvAbstractItem::ready, this, [this] {
+        if (PlayerPolicy::diagnosticCapture(qEnvironmentVariable("CI"), qEnvironmentVariable("ZENITH_QT_DIAGNOSTICS")))
+            std::fprintf(stderr, "Qt startup: MpvQt renderer ready\n");
         rendererReady = true;
         emit rendererInitialized();
     });
@@ -70,6 +75,7 @@ VideoItem::VideoItem(QQuickItem *parent) : MpvAbstractItem(parent) {
     ticker.setInterval(100);
     connect(&ticker, &QTimer::timeout, this, [this] { if (epoch.current()) publish(); });
     ticker.start();
+    if (ciDiagnostics) std::fprintf(stderr, "Qt startup: VideoItem constructor returned\n");
 }
 void VideoItem::reset() {
     state = {{"currentTime", 0.0}, {"duration", 0.0}, {"width", 0}, {"height", 0},

@@ -12,6 +12,14 @@ private slots:
         QVERIFY(PlayerPolicy::diagnosticCapture("true", "1"));
         QVERIFY(PlayerPolicy::diagnosticCapture("1", "1"));
     }
+    void diagnosticMessagesPreserveLibraryErrorsWithoutUrls() {
+        QCOMPARE(PlayerPolicy::diagnosticMessage("Cannot load library libqxcb.so: libxcb-cursor.so.0 missing"),
+            QString("Cannot load library libqxcb.so: libxcb-cursor.so.0 missing"));
+        QCOMPARE(PlayerPolicy::diagnosticMessage("Failed https://server.invalid/movie?api_key=secret; retry"),
+            QString("Failed [Qt URL] retry"));
+        QCOMPARE(PlayerPolicy::diagnosticMessage("Authorization: Bearer secret"),
+            QString("[Private Qt diagnostic omitted]"));
+    }
     void rejectsExecutableMedia() {
         QVERIFY(!PlayerPolicy::mediaUri("file:///etc/passwd"));
         QVERIFY(!PlayerPolicy::mediaUri("edl://https://example.com/movie"));

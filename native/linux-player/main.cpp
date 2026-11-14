@@ -47,13 +47,10 @@ private:
 // Never print untrusted Chromium/mpv/Qt messages: console and decoder errors can
 // contain authenticated source URIs. Process status uses generic stdout events.
 static void privateMessages(QtMsgType, const QMessageLogContext &, const QString &message) {
-    // Opt-in diagnostics only for CI's public fixtures. Drop complete messages
-    // containing authenticated/network addresses instead of imperfect redaction.
-    if (qEnvironmentVariable("ZENITH_QT_DIAGNOSTICS") != "1" || qEnvironmentVariable("CI") != "true") return;
-    if (message.contains("://") && !message.contains("qrc:/")) return;
-    for (const QString &secret : {"http:", "https:", "api_key", "token", "authorization"})
-        if (message.contains(secret, Qt::CaseInsensitive)) return;
-    const auto bytes = message.left(2048).toUtf8();
+    // CI public-fixture diagnostics retain plugin/library failures while source
+    // URLs are replaced and any remaining credential-bearing text is omitted.
+    if (!PlayerPolicy::diagnosticCapture(qEnvironmentVariable("CI"), qEnvironmentVariable("ZENITH_QT_DIAGNOSTICS"))) return;
+    const auto bytes = PlayerPolicy::diagnosticMessage(message).toUtf8();
     std::fprintf(stderr, "Qt diagnostic: %s\n", bytes.constData());
 }
 static std::optional<QByteArray> readBootstrap() {
@@ -92,7 +89,8 @@ int main(int argc, char **argv) {
     if (!privateConfig.isValid()) return 2;
     qputenv("XDG_CONFIG_HOME", privateConfig.path().toUtf8());
     qputenv("XDG_CACHE_HOME", (privateConfig.path() + "/cache").toUtf8());
-    qputenv("QT_LOGGING_RULES", "*.debug=false;*.info=false;*.warning=false");
+    const bool ciDiagnostics = PlayerPolicy::diagnosticCapture(qEnvironmentVariable("CI"), qEnvironmentVariable("ZENITH_QT_DIAGNOSTICS"));
+    qputenv("QT_LOGGING_RULES", ciDiagnostics ? "*.debug=false;*.info=true;*.warning=true" : "*.debug=false;*.info=false;*.warning=false");
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     QtWebEngineQuick::initialize();
@@ -148,6 +146,8 @@ int main(int argc, char **argv) {
         // A hung WebEngine/renderer must not keep a hidden handoff process alive.
         if (engine.rootObjects().isEmpty()) bridge.shutdown();
     });
+    if (ciDiagnostics) std::fprintf(stderr, "Qt startup: engine.load entering\n");
     engine.load(QUrl("qrc:/Main.qml"));
+    if (ciDiagnostics) std::fprintf(stderr, "Qt startup: engine.load returned\n");
     return app.exec();
 }

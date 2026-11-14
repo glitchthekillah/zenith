@@ -71,8 +71,9 @@ async function until(check, label, timeout=20000) {
   const end=Date.now()+timeout; let last;
   while(Date.now()<end){
     if(childError) throw childError;
+    assert.equal(child.signalCode,null,`Helper terminated by ${child.signalCode} during ${label}`);
     assert.equal(child.exitCode,null,`Helper exited during ${label}: ${child.exitCode}`);
-    try { last=await check(); if(last)return last; } catch(e){last=e.message;}
+    try { last=await check(); if(last)return last; } catch(e){last=e.message+(e.cause?' '+String(e.cause):'');}
     await sleep(150);
   }
   throw Error(`Timed out: ${label}; last=${JSON.stringify(last)}`);
@@ -236,6 +237,14 @@ try {
   assert(!stderr.includes(group.servers.jellyfin.token),'Helper stderr leaked server credentials');
   assert(!JSON.stringify(events).includes(group.servers.jellyfin.token),'Helper stdout leaked server credentials');
   log('strict original files and clean helper close');
+} catch(error) {
+  const probes=[['sockets','ss',['-ltnp']],['debug-http','curl',['--max-time','3','-v','http://127.0.0.1:9223/json/list']],['threads','sudo',['-n','gdb','-batch','-ex','set pagination off','-ex','thread apply all bt','-p',String(child.pid)]]];
+  for(const [name,program,args] of probes){
+    try {const result=await exec(program,args,{timeout:15000,maxBuffer:2*1024*1024});await writeFile(path.join(artifacts,name+'.txt'),result.stdout+'\n'+result.stderr);}
+    catch(probe){await writeFile(path.join(artifacts,name+'.txt'),String(probe.stdout||'')+'\n'+String(probe.stderr||probe.message));}
+  }
+  if(!wayland){try{await exec('import',['-window','root',path.join(artifacts,'failed-root.png')]);}catch{}}
+  throw error;
 } finally {
   socket?.close(); for(const p of pending.values()){clearTimeout(p.timer);p.reject(Error('Test closing'));} pending.clear();
   if(child.exitCode===null)child.kill('SIGKILL');
