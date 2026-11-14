@@ -66,7 +66,7 @@ child.stderr.pipe(createWriteStream(path.join(artifacts,'helper.stderr.log')));
 let output=''; child.stdout.on('data',chunk=>{ output+=chunk; let end; while((end=output.indexOf('\n'))>=0){const line=output.slice(0,end);output=output.slice(end+1);try{events.push(JSON.parse(line));}catch{failures.push('Non-JSON helper stdout');}} });
 let childError; child.on('error',e=>{childError=e;});
 child.stdin.write(JSON.stringify(bootstrap)+'\n');
-let socket, serial=0; const pending=new Map();
+let socket, serial=0; const pending=new Map(), scripts=new Set();
 async function until(check, label, timeout=20000) {
   const end=Date.now()+timeout; let last;
   while(Date.now()<end){
@@ -162,15 +162,19 @@ try {
   assert(target.webSocketDebuggerUrl,JSON.stringify(targets));
   socket=new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});
-  socket.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.method==='Runtime.exceptionThrown')console.error('Fixture page exception:',JSON.stringify(m.params));if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);clearTimeout(p.timer);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}});
+  socket.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.method==='Debugger.scriptParsed')scripts.add(m.params.url);if(m.method==='Runtime.exceptionThrown')console.error('Fixture page exception:',JSON.stringify(m.params));if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);clearTimeout(p.timer);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}});
   await command('Runtime.enable');
+  await command('Debugger.enable');
   await until(()=>js(`!!window.zenithQt?.controller && !!document.querySelector('#player video')`),'Qt player adapter');
   assert.equal(await js('window.zenithQt.backend'),'qt-mpv');
   const info=await native('bootstrap');
   assert.match(info.qtVersion,/^6\./,'Native bridge must report actual Qt version');
   const maps=await readFile(`/proc/${child.pid}/maps`,'utf8');
   assert.match(maps,/libQt6WebEngineCore/); assert.match(maps,/libMpvQt/i); assert.match(maps,/libmpv\.so/);
-  const loaded=await js(`performance.getEntriesByType('resource').map(x=>x.name)`);
+  // Chromium does not expose every file:// module through resource timing.
+  // Debugger.scriptParsed reports the scripts actually compiled in this view.
+  const loaded=[...scripts];
+  await writeFile(path.join(artifacts,'compiled-scripts.json'),JSON.stringify(loaded,null,2));
   assert(loaded.some(x=>x.includes('/js/player.js')),'Real player.js not loaded');
   assert(loaded.some(x=>x.includes('/js/qt-native-video.js')),'Qt native adapter not loaded');
   assert(!loaded.some(x=>/\/vendor\/native-video|\/tauri-native-video/.test(x)),'GTK native adapter loaded');
