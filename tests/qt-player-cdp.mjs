@@ -162,7 +162,7 @@ try {
   assert(target.webSocketDebuggerUrl,JSON.stringify(targets));
   socket=new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});
-  socket.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);clearTimeout(p.timer);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}});
+  socket.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.method==='Runtime.exceptionThrown')console.error('Fixture page exception:',JSON.stringify(m.params));if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);clearTimeout(p.timer);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}});
   await command('Runtime.enable');
   await until(()=>js(`!!window.zenithQt?.controller && !!document.querySelector('#player video')`),'Qt player adapter');
   assert.equal(await js('window.zenithQt.backend'),'qt-mpv');

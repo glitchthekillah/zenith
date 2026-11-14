@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import QtWebEngine
+import QtWebChannel
 import Zenith.Native 1.0
 
 Window {
@@ -13,7 +14,13 @@ Window {
     color: "black"
     flags: Qt.Window | Qt.FramelessWindowHint
     visible: true
-    Component.onCompleted: nativeBridge.attach(movie, playerWindow)
+    Component.onCompleted: {
+        // Explicit registration avoids registeredObjects_append looking up a
+        // QQmlContext on a bridge constructed in C++. Register before navigation.
+        channel.registerObject("bridge", nativeBridge)
+        nativeBridge.attach(movie, playerWindow)
+        controls.url = playerEntry
+    }
     onClosing: function(close) {
         close.accepted = nativeBridge.exiting
         if (!close.accepted) nativeBridge.requestClose()
@@ -23,12 +30,12 @@ Window {
         anchors.fill: parent
         mirrorVertically: true
     }
+    WebChannel { id: channel }
     WebEngineView {
         id: controls
         anchors.fill: parent
         profile: trustedProfile
-        webChannel: playerChannel
-        url: playerEntry
+        webChannel: channel
         backgroundColor: "transparent"
         // Chromium and libmpv compose in the same Qt Quick OpenGL scene.
         // This separate layer matches Jellyfin's transparent WebEngine overlay.
