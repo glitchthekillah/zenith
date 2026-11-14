@@ -97,6 +97,10 @@ jobs:
           ZENITH_QT_ARTIFACTS: /tmp/qt-wayland-evidence
           ZENITH_QT_WAYLAND: '1'
         run: |
+          # Weston uses an isolated runtime directory; keep the already-running
+          # Pulse server's address rather than searching that new directory.
+          export PULSE_SERVER=$(pactl info | sed -n 's/^Server String: //p')
+          test -n "$PULSE_SERVER"
           export XDG_RUNTIME_DIR=$(mktemp -d /tmp/zenith-qt-wayland.XXXXXXXX)
           chmod 700 "$XDG_RUNTIME_DIR"
           export WAYLAND_DISPLAY=wayland-zenith
