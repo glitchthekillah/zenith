@@ -13,7 +13,10 @@ lib.mkdir(exist_ok=True)
 for source in (qt/'lib').glob('lib*.so*'):
     if source.is_file(): shutil.copy2(source, lib/source.name, follow_symlinks=True)
 for folder in ['plugins', 'qml', 'libexec', 'resources', 'translations']:
-    if (qt/folder).is_dir(): shutil.copytree(qt/folder, output/folder, symlinks=False, dirs_exist_ok=True)
+    # WebEngine supplies its own storage; this player never uses Qt SQL.
+    # SDK database connectors require external commercial database clients.
+    ignore = shutil.ignore_patterns('sqldrivers') if folder == 'plugins' else None
+    if (qt/folder).is_dir(): shutil.copytree(qt/folder, output/folder, symlinks=False, dirs_exist_ok=True, ignore=ignore)
 # Resolve the ELF dependency closure against this runtime before any AppImage
 # environment is inherited. Do not bundle the kernel/driver-facing graphics stack.
 exclude = re.compile(r'^(linux-vdso|ld-linux|libstdc\+\+\.so|libgcc_s\.so|lib(c|m|pthread|dl|rt|resolv|nss_[^.]*)\.so|lib(GL[^.]*|EGL[^.]*|GLES[^.]*|OpenGL|glapi|gbm|drm[^.]*|vulkan|xshmfence)\.so)')
