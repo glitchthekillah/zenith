@@ -4,6 +4,14 @@
 class PolicyTest : public QObject {
     Q_OBJECT
 private slots:
+    void retainedPreferencesExcludePrivateAndInvalidValues() {
+        const auto preferences = PlayerPolicy::playbackPreferences({{"volume", .42}, {"rate", 1.25}, {"subtitleSize", 130}, {"subtitles", "off"}, {"token", "secret"}, {"audioLang", "https://secret"}});
+        QCOMPARE(preferences.value("volume").toDouble(), .42);
+        QCOMPARE(preferences.value("rate").toDouble(), 1.25);
+        QCOMPARE(preferences.value("subtitleSize").toInt(), 130);
+        QVERIFY(!preferences.contains("token")); QVERIFY(!preferences.contains("audioLang"));
+        QVERIFY(PlayerPolicy::playbackPreferences({{"volume", 5}, {"rate", -1}, {"subtitleSize", 0}}).isEmpty());
+    }
     void captureRequiresBothExplicitCiFlags() {
         QVERIFY(!PlayerPolicy::diagnosticCapture("", "1"));
         QVERIFY(!PlayerPolicy::diagnosticCapture("true", ""));

@@ -86,18 +86,18 @@ test('bootstrap stores only the active group before core imports and bridge corr
  let received;bridge.on((ch,data)=>received=[ch,data]);const reply=bridge.call('bootstrap');complete('wrong',{ok:true,data:1});complete(request[0],{ok:true,data:{item:2}});assert.equal((await reply).item,2);event('media-key',{data:'toggle'});assert.equal(received[0],'media-key');
 });
 test('Qt startup waits for bootstrap before loading shared state and closes through the existing player',async()=>{
- const {startQtPlayer}=load('qt-player','startQtPlayer'),values=new Map(),calls=[];let complete,events,request,coreListener,played,closed=0;
- const bridge={completed:{connect(fn){complete=fn}},event:{connect(fn){events=fn}},request(id,action,args){calls.push(action);if(action==='bootstrap')request=id;else complete(id,{ok:true,data:{}})}};
+ const {startQtPlayer}=load('qt-player','startQtPlayer'),values=new Map(),calls=[],exitArgs=[];let complete,events,request,coreListener,played,closed=0;
+ const bridge={completed:{connect(fn){complete=fn}},event:{connect(fn){events=fn}},request(id,action,args){calls.push(action);if(action==='exit')exitArgs.push(args);if(action==='bootstrap')request=id;else complete(id,{ok:true,data:{}})}};
  const doc=Object.assign(new EventTarget(),{hasFocus:()=>true,body:{classList:{contains:()=>false}}});
  const scope={qt:{webChannelTransport:{}},QWebChannel:function(t,ready){ready({objects:{bridge}})},localStorage:{setItem:(k,v)=>values.set(k,v)},document:doc};
  const promise=startQtPlayer(scope,async path=>{
    assert.equal(values.get('zenith-device'),'device');assert.equal(scope.zenithDesktop.qtPlayer,true);
-   return path==='./core.js'?{groups:{use(id){assert.equal(id,'active')}},on(name,fn){coreListener=fn}}:{play:async(item,options)=>{played={item,options}},close:async()=>{closed++;coreListener({open:false})}};
+   return path==='./core.js'?{settings:{playback:{volume:.42,rate:1.25,subtitleSize:130}},groups:{use(id){assert.equal(id,'active')}},on(name,fn){coreListener=fn}}:{play:async(item,options)=>{played={item,options}},close:async()=>{closed++;coreListener({open:false})}};
  });
  await Promise.resolve();assert.equal(played,undefined);complete(request,{ok:true,data:{deviceId:'device',group:{id:'active'},settings:{},item:{Id:'movie'},options:{start:12},selection:{sub:'off'},qtVersion:'6.8.3'}});
  await promise;assert.equal(played.item.Id,'movie');assert.equal(played.options.start,12);assert.equal(played.options.selection.sub,'off');assert.equal(scope.zenithQt.qtVersion,'6.8.3');
  let key;scope.zenithDesktop.on((ch,data)=>{if(ch==='media-key')key=data});events('media-key',{key:'MediaPlayPause'});assert.equal(key,'toggle');
- events('close-request',{});await Promise.resolve();assert.equal(closed,1);assert.ok(calls.includes('exit'));
+ events('close-request',{});await Promise.resolve();assert.equal(closed,1);assert.ok(calls.includes('exit'));assert.equal(exitArgs[0]?.playback?.volume,.42);assert.equal(exitArgs[0]?.playback?.subtitleSize,130);
 });
 test('mini dragging starts only after movement outside interactive player controls',()=>{
  const {bindQtWindowDrag}=load('qt-player','bindQtWindowDrag'),calls=[],doc=Object.assign(new EventTarget(),{body:{classList:{contains:()=>true}}});

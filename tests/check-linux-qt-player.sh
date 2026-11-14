@@ -25,10 +25,10 @@ if ! pactl list short sinks | awk '{print $2}' | grep -Fxq "$PULSE_SINK"; then
   sink_module=$(pactl load-module module-null-sink sink_name="$PULSE_SINK")
 fi
 # Public, hash-pinned subtitle data is shared with the GTK comparison harness.
-ffmpeg -y -hide_banner -loglevel error -f lavfi -i color=c=blue:size=640x360:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 60 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a ac3 -ac 6 /tmp/zenith-media-fixtures/video.mkv
+ffmpeg -y -hide_banner -loglevel error -f lavfi -i 'color=c=blue:size=640x360:rate=24,drawbox=x=0:y=0:w=128:h=72:color=red:t=fill' -f lavfi -i sine=frequency=440:sample_rate=48000 -t 60 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a ac3 -ac 6 /tmp/zenith-media-fixtures/video.mkv
 python3 "$source_dir/tests/linux-realistic-fixtures.py"
 python3 "$source_dir/tests/linux-delayed-subtitles.py"
-ffmpeg -y -hide_banner -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 30 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a ac3 -ac 6 /tmp/zenith-media-fixtures/moving.mkv
+ffmpeg -y -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=1280x720:rate=24,hue=h=45*t' -f lavfi -i sine=frequency=440:sample_rate=48000 -t 30 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a ac3 -ac 6 /tmp/zenith-media-fixtures/moving.mkv
 # The caller chooses software GL versus the physical graphics stack. Never
 # silently force software rendering in a purported hardware test.
 export QTWEBENGINE_REMOTE_DEBUGGING=127.0.0.1:9223

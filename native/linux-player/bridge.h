@@ -32,6 +32,7 @@ private:
     void http(const QString &id, const QVariantMap &args);
     QVariantMap windowState() const;
     QVariantMap bootstrapData;
+    QVariantMap retainedPlayback;
     QUrl entryUrl;
     VideoItem *video = nullptr;
     QQuickWindow *window = nullptr;

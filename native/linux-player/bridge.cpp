@@ -64,8 +64,10 @@ void Bridge::shutdown() {
     // Position is safe; never echo bootstrap, URLs or server credentials.
     if (video) {
         auto s = video->snapshot();
-        e["playback"] = QVariantMap{{"currentTime", s.value("currentTime")}, {"duration", s.value("duration")},
+        QVariantMap preferences{{"currentTime", s.value("currentTime")}, {"duration", s.value("duration")},
             {"volume", s.value("volume")}, {"rate", s.value("rate")}, {"muted", s.value("muted")}};
+        for (auto it = retainedPlayback.cbegin(); it != retainedPlayback.cend(); ++it) preferences[it.key()] = it.value();
+        e["playback"] = preferences;
         video->control("media.stop", {});
     }
     output(e);
@@ -165,7 +167,12 @@ void Bridge::request(const QString &id, const QString &action, const QVariantMap
         finish(id); return;
     }
     if (action == "notify") { finish(id); return; }
-    if (action == "exit") { finish(id); QTimer::singleShot(0, this, &Bridge::shutdown); return; }
+    if (action == "exit") {
+        // The shared player has already stopped its native session by now.
+        // Return the saved user preferences, not reset decoder defaults.
+        retainedPlayback = PlayerPolicy::playbackPreferences(args.value("playback").toMap());
+        finish(id); QTimer::singleShot(0, this, &Bridge::shutdown); return;
+    }
     reject(id, "Unsupported player request.");
 }
 void Bridge::http(const QString &id, const QVariantMap &args) {

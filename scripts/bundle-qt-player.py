@@ -16,7 +16,7 @@ for folder in ['plugins', 'qml', 'libexec', 'resources', 'translations']:
     if (qt/folder).is_dir(): shutil.copytree(qt/folder, output/folder, symlinks=False, dirs_exist_ok=True)
 # Resolve the ELF dependency closure against this runtime before any AppImage
 # environment is inherited. Do not bundle the kernel/driver-facing graphics stack.
-exclude = re.compile(r'^(linux-vdso|ld-linux|lib(c|m|pthread|dl|rt|resolv|nss_[^.]*)\.so|lib(GL[^.]*|EGL[^.]*|GLES[^.]*|OpenGL|glapi|gbm|drm[^.]*|vulkan|xshmfence)\.so)')
+exclude = re.compile(r'^(linux-vdso|ld-linux|libstdc\+\+\.so|libgcc_s\.so|lib(c|m|pthread|dl|rt|resolv|nss_[^.]*)\.so|lib(GL[^.]*|EGL[^.]*|GLES[^.]*|OpenGL|glapi|gbm|drm[^.]*|vulkan|xshmfence)\.so)')
 env = dict(os.environ, LD_LIBRARY_PATH=str(lib)+':'+str(qt/'lib'))
 seen = set()
 while True:

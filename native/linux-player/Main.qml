@@ -28,7 +28,7 @@ Window {
     MpvQtVideoItem {
         id: movie
         anchors.fill: parent
-        mirrorVertically: true
+        mirrorVertically: false
     }
     WebChannel { id: channel }
     WebEngineView {

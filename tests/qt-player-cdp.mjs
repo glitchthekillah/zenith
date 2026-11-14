@@ -116,10 +116,14 @@ async function capture(name){
   }else await exec('import',['-window','root',file]);
   return file;
 }
-async function blueFrame(name) {
+async function blueFrame(name, orientation=false) {
   const image=await capture(name);
   const point=await js(`(()=>{const r=document.querySelector('#player video').getBoundingClientRect();return [Math.round(${wayland?'0':'screenX'}+r.x+r.width*.55),Math.round(${wayland?'0':'screenY'}+r.y+r.height*.4)]})()`);
   await exec('python3',['-c',`from PIL import Image\nimport json,sys\nr,g,b=Image.open(sys.argv[1]).convert('RGB').getpixel(tuple(json.loads(sys.argv[2])))\nassert b>200 and r<45 and g<45,('Native movie absent after window/seek transition',r,g,b)`,image,JSON.stringify(point)]);
+  if(orientation){
+    const marker=await js(`(()=>{const r=document.querySelector('#player video').getBoundingClientRect();return [Math.round(${wayland?'0':'screenX'}+r.x+r.width*.10),Math.round(${wayland?'0':'screenY'}+r.y+r.height*.15)]})()`);
+    await exec('python3',['-c',`from PIL import Image\nimport json,sys\nr,g,b=Image.open(sys.argv[1]).convert('RGB').getpixel(tuple(json.loads(sys.argv[2])))\nassert r>200 and g<45 and b<45,('Movie is inverted: top-left red marker absent',r,g,b)`,image,JSON.stringify(marker)]);
+  }
 }
 async function pointer(point,type='mouseMoved') {await command('Input.dispatchMouseEvent',{type,x:point.x,y:point.y,button:type==='mouseMoved'?'none':'left',clickCount:type==='mouseMoved'?0:1});}
 async function click(selector){const p=await js(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);await pointer(p);await pointer(p,'mousePressed');await pointer(p,'mouseReleased');}
@@ -181,6 +185,7 @@ try {
   assert(!await js(`document.documentElement.classList.contains('tauri-native-video')`),'GTK aperture class present');
   await until(()=>events.some(e=>e.type==='ready'),'helper ready protocol');
   await progress('original blue film');
+  await blueFrame('initial-orientation',true);
   log('actual Qt/MpvQt/libmpv backend and original playback',info.qtVersion);
   await click('[data-p=settings]');
   await until(()=>js(`!!document.querySelector('.pl-menu')`),'real settings pointer click');
@@ -204,11 +209,11 @@ try {
   log('simultaneous real hover preserves movie and every opaque icon row');
   const before=await js('({w:innerWidth,h:innerHeight})');
   assert.equal((await native('win',{action:'fullscreen',arg:true})).fullscreen,true);
-  await progress('fullscreen film');await blueFrame('fullscreen');
+  await progress('fullscreen film');await blueFrame('fullscreen',true);
   assert.equal((await native('win',{action:'fullscreen',arg:false})).fullscreen,false);
   await native('win',{action:'mini',arg:true});
   await until(()=>js(`innerWidth<${before.w} || innerHeight<${before.h}`),'native mini resize');
-  await progress('resized film');await blueFrame('mini');
+  await progress('resized film');await blueFrame('mini',true);
   await native('win',{action:'mini',arg:false});
   log('fullscreen and native resize keep film advancing');
   await replace('moving');await progress('moving original');
@@ -234,9 +239,12 @@ try {
   assert(requests.some(r=>r.path.includes('/PlaybackInfo')),'Player bypassed Jellyfin negotiation');
   assert.deepEqual(failures,[]);
   assert(!events.some(e=>e.type==='error'),'Helper emitted protocol error');
+  await js(`(async()=>{const c=await import(new URL('js/core.js',document.baseURI));c.settings.playback.volume=.42;c.settings.playback.rate=1.25;c.settings.playback.subtitleSize=130;return true})()`);
   child.stdin.write('{"type":"close"}\n');
   await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Helper did not close')),10000);child.once('close',(code)=>{clearTimeout(timer);code===0?resolve():reject(Error(`Close exited ${code}`));});});
   assert(events.some(e=>e.type==='closed'),'Missing closed protocol event');
+  const returned=events.find(e=>e.type==='closed').playback;
+  assert.equal(returned.volume,.42,'Close reset the user volume');assert.equal(returned.rate,1.25,'Close reset playback speed');assert.equal(returned.subtitleSize,130,'Close lost subtitle size');
   const stderr=await readFile(path.join(artifacts,'helper.stderr.log'),'utf8');
   assert(!stderr.includes(group.servers.jellyfin.token),'Helper stderr leaked server credentials');
   assert(!JSON.stringify(events).includes(group.servers.jellyfin.token),'Helper stdout leaked server credentials');

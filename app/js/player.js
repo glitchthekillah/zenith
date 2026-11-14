@@ -31,7 +31,7 @@ const qtHandoff = desktop?.qtPlay && !desktop.qtPlayer ? createQtHandoff(desktop
   onClosed: (data) => {
     if (data.playback && typeof data.playback === 'object') {
       // Only playback preferences return from the helper, never server state.
-      for (const key of ['volume','rate','subtitles','audioLang','subLang']) if (key in data.playback) settings.playback[key] = data.playback[key];
+      for (const key of ['volume','rate','subtitles','audioLang','subLang','subtitleSize']) if (key in data.playback) settings.playback[key] = data.playback[key];
       save();
     }
     emit('player', {open:false});

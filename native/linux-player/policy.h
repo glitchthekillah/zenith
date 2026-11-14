@@ -11,6 +11,7 @@ inline bool diagnosticCapture(const QString &ci, const QString &diagnostics) {
     return (ci == "true" || ci == "1") && diagnostics == "1";
 }
 QString diagnosticMessage(QString message);
+QVariantMap playbackPreferences(const QVariantMap &values);
 inline bool mediaUri(const QString &value) {
     QUrl url(value, QUrl::StrictMode);
     return url.isValid() && (url.scheme() == "http" || url.scheme() == "https")

@@ -83,12 +83,13 @@ export async function startQtPlayer(scope = window, importModule = path => impor
   const core = await importModule('./core.js');
   core.groups.use(payload.group.id);
   const player = await importModule('./player.js');
-  core.on('player',data => { if (!data.open) qt.call('exit').catch(() => {}); });
+  const exit = () => qt.call('exit',{playback:core.settings.playback}).catch(() => {});
+  core.on('player',data => { if (!data.open) exit(); });
   let closing = false;
   qt.on(async channel => {
     if (channel !== 'close-request' || closing) return;
     closing = true;
-    try { await player.close(false); } finally { qt.call('exit').catch(() => {}); }
+    try { await player.close(false); } finally { exit(); }
   });
   await player.play(payload.item,{...payload.options,selection:payload.selection});
 }
