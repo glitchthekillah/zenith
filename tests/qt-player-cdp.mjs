@@ -197,7 +197,13 @@ try {
   if(wayland)geometry.offset=[0,0];
   assert.equal(geometry.dpr,1,'Pixel assertions require scale factor 1');
   assert(geometry.icons.length>=4,'Missing actual player icons');assert(geometry.targets.length>=5);
-  const reference=await capture('controls-reference');
+  // CSS opacity updates before Chromium's next composed frame. Establish an
+  // actually painted icon reference before starting continuous pointer motion.
+  const reference=await until(async()=>{
+    const file=await capture('controls-reference');
+    await exec('python3',['-c',pixelScript,JSON.stringify({...geometry,reference:file,actual:file})]);
+    return file;
+  },'composed controls ready');
   let moving=true;
   const motion=(async()=>{let step=0;while(moving){await pointer(geometry.targets[step++%geometry.targets.length]);await sleep(12);}})();
   try {
