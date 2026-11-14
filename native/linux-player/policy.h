@@ -3,7 +3,6 @@
 #include <QJsonObject>
 #include <QQueue>
 #include <QUrl>
-#include <QRegularExpression>
 #include <optional>
 
 namespace PlayerPolicy {
@@ -11,13 +10,7 @@ constexpr qsizetype maxLine = 4 * 1024 * 1024;
 inline bool diagnosticCapture(const QString &ci, const QString &diagnostics) {
     return (ci == "true" || ci == "1") && diagnostics == "1";
 }
-inline QString diagnosticMessage(QString message) {
-    static const QRegularExpression url(R"(https?://[^\s"'<>]+)", QRegularExpression::CaseInsensitiveOption);
-    message.replace(url, "[Qt URL]");
-    for (const QString &secret : {"api_key", "token", "authorization"})
-        if (message.contains(secret, Qt::CaseInsensitive)) return "[Private Qt diagnostic omitted]";
-    return message.left(2048);
-}
+QString diagnosticMessage(QString message);
 inline bool mediaUri(const QString &value) {
     QUrl url(value, QUrl::StrictMode);
     return url.isValid() && (url.scheme() == "http" || url.scheme() == "https")
