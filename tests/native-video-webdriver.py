@@ -183,6 +183,11 @@ try:
     # bounds and the controls' visibility are unchanged. The old wake handler
     # generated a no-op ancestor class mutation for every mouse move.
     async_js('await new Promise(r=>setTimeout(r,100));window.pointerNoops=0;window.pointerObserver=new MutationObserver(records=>{for(const r of records)if(r.oldValue===r.target.getAttribute(r.attributeName))pointerNoops++});pointerObserver.observe(document.querySelector("#player"),{attributes:true,attributeOldValue:true,attributeFilter:["class"]});return true;')
+    # Cross the actual seek bar and control buttons, not only the movie's
+    # empty center. Hover changes (track height, button background, volume)
+    # exercise the damaged interface regions reported on the physical GPU.
+    hover_targets=js('return [...document.querySelectorAll(".pl-row button,.pl-seek")].filter(e=>e.getBoundingClientRect().width>0).map(e=>{const r=e.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})')
+    assert len(hover_targets)>4,'Playback hover targets are missing'
     if not os.environ.get('ZENITH_WAYLAND_TEST'):
         from PIL import Image
         pointer_window=request('GET',base+'/window/rect')
@@ -200,13 +205,13 @@ try:
         motion_errors=[]
         def move_while_capturing():
             try:
-                request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':25,'origin':'viewport','x':350+(step%16)*18,'y':270+(step%12)*8} for step in range(32)]}]})
+                request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':25,'origin':'viewport',**hover_targets[step%len(hover_targets)]} for step in range(32)]}]})
             except Exception as error:motion_errors.append(error)
         motion=Thread(target=move_while_capturing)
         motion.start()
     for step in range(8):
         if os.environ.get('ZENITH_WAYLAND_TEST'):
-            request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':80,'origin':'viewport','x':350+step*18,'y':270+step*8}]}]})
+            request('POST',base+'/actions',{'actions':[{'type':'pointer','id':'mouse','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':80,'origin':'viewport',**hover_targets[step%len(hover_targets)]}]}]})
         if not os.environ.get('ZENITH_WAYLAND_TEST'):
             image=f'/tmp/native-app-pointer-{step}.png'
             subprocess.run(['import','-window','root',image],check=True)
