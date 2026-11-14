@@ -288,7 +288,12 @@ try:
     # actual helper through its own Jellyfin session rather than reattaching to
     # a stale old debugger or pretending DOM state belongs to the new process.
     until(lambda: any(r["path"] == "/Sessions/Playing" and (r.get("body") or {}).get("ItemId") == "new" for r in requests), "replacement actual playback start")
-    time.sleep(1.5)
+    # The new helper has a fresh decoder/audio device. Its start event precedes
+    # actual playback, so a fixed short sleep is not evidence of elapsed media.
+    until(lambda: any(r["path"] == "/Sessions/Playing/Progress" and
+                      (r.get("body") or {}).get("ItemId") == "new" and
+                      (r.get("body") or {}).get("PositionTicks", 0) > 5000000
+                      for r in requests), "replacement actual decoded progress", timeout=25)
     close(old)  # A stale owner must not be able to close the active helper.
     time.sleep(.5)
     assert closed(new) is None, "Stale qt_close terminated the replacement"
