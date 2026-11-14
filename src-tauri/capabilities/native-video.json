@@ -1,7 +1,0 @@
-{
-  "identifier": "native-video",
-  "description": "Linux original-file video surface controlled only by Zenith's main window.",
-  "platforms": ["linux"],
-  "windows": ["main"],
-  "permissions": ["video:default"]
-}
