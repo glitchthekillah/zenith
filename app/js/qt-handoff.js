@@ -26,6 +26,10 @@ export function createQtHandoff(desktop, {onClosed} = {}) {
     async play(payload,{signal} = {}) {
       signal?.throwIfAborted();
       if (disposed) throw cancelError();
+      // Merged cards keep a _copies graph containing the original item itself.
+      // It belongs to the browsing view, not the player process. Preserve the
+      // original cache and server ownership while sending plain media data.
+      const transferable = JSON.parse(JSON.stringify(payload,(key,value) => key === '_copies' ? undefined : value));
       const previous = active;
       const owner = {id:null,cancelled:false}; active = owner;
       const aborted = () => { cancel(owner).catch(() => {}); };
@@ -36,7 +40,7 @@ export function createQtHandoff(desktop, {onClosed} = {}) {
         if (previous) await cancel(previous);
         signal?.throwIfAborted();
         if (active !== owner || owner.cancelled) throw cancelError();
-        const result = await desktop.qtPlay(payload);
+        const result = await desktop.qtPlay(transferable);
         owner.id = result.id;
         if (owner.id == null) throw new Error('Playback helper did not start.');
         if (owner.cancelled || signal?.aborted || active !== owner || disposed) {

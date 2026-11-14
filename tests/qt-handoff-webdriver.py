@@ -158,7 +158,7 @@ try {
   const result=await new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>reject(Error('Bundled Qt CDP timed out')),10000);
     socket.addEventListener('message',event=>{const m=JSON.parse(event.data);if(m.id===1){clearTimeout(timer);m.error?reject(Error(JSON.stringify(m.error))):resolve(m.result);}});
-    socket.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{awaitPromise:true,returnByValue:true,expression:`(async()=>{const q=window.zenithQt;const s=await q.call('diagnostic.state');const v=document.querySelector('#player video');return {...s,backend:q.backend,url:location.href,time:v?.currentTime,width:v?.videoWidth,paused:v?.paused,error:!!v?.error}})()`}}));
+    socket.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{awaitPromise:true,returnByValue:true,expression:process.argv[1]||`(async()=>{const q=window.zenithQt;const s=await q.call('diagnostic.state');const v=document.querySelector('#player video');return {...s,backend:q.backend,url:location.href,time:v?.currentTime,width:v?.videoWidth,paused:v?.paused,error:!!v?.error,viewportWidth:innerWidth,viewportHeight:innerHeight}})()`}}));
   });
   assert(!result.exceptionDetails,JSON.stringify(result.exceptionDetails));
   console.log(JSON.stringify(result.result.value));
@@ -166,8 +166,8 @@ try {
 """
 
 
-def qt_snapshot():
-    completed = subprocess.run(["node", "--input-type=module", "-e", NODE_CDP], check=False,
+def qt_snapshot(expression=None):
+    completed = subprocess.run(["node", "--input-type=module", "-e", NODE_CDP] + ([expression] if expression else []), check=False,
                                capture_output=True, text=True, timeout=15)
     assert completed.returncode == 0, "Bundled Qt CDP probe failed: " + completed.stderr[-3000:]
     return json.loads(completed.stdout)
@@ -218,8 +218,9 @@ try:
     until(lambda: js("return !!window.__TAURI__?.core && !!window.__TAURI__?.event && !!document.body"), "Tauri bridge")
     # Await listener registration before any session can emit a close event.
     async_js("""
-      window.handoffEvents=[];
+      window.handoffEvents=[];window.handoffReady=[];
       await window.__TAURI__.event.listen('zenith',async event=>{
+        if(event.payload?.channel==='qt-player-ready'){window.handoffReady.push(event.payload.data);return;}
         if(event.payload?.channel!=='qt-player-closed')return;
         const w=window.__TAURI__.window.getCurrentWindow();
         const data=event.payload.data;
@@ -235,7 +236,18 @@ try:
 
     def start(item_id):
         began = time.monotonic()
-        result = async_js("return await window.__TAURI__.core.invoke('qt_play',{payload:" + json.dumps(payload(item_id)) + "});")
+        # Exercise the same merge graph and shared player entry used by cards.
+        # Direct qt_play invokes used to miss the self-referencing _copies bug.
+        result = async_js("""
+          const data=""" + json.dumps(payload(item_id)) + """;
+          const core=await import(new URL('js/core.js',document.baseURI));
+          core.settings.groups=[data.group];core.groups.use(data.group.id);
+          const watch=await import(new URL('js/watch.js',document.baseURI));
+          data.item._g=data.group.id;
+          const card=watch.merge([data.item])[0];
+          const player=await import(new URL('js/player.js',document.baseURI));
+          return await player.play(card,data.options);
+        """)
         assert result.get("id") is not None, result
         assert time.monotonic() - began < 5, "qt_play waited for playback instead of returning its session id"
         active_ids.append(result["id"])
@@ -251,11 +263,14 @@ try:
     assert parent()["visible"], "Browsing host started hidden"
     first = start("first")
     # Native ready is authoritative; DOM presence alone cannot authorize hiding.
-    until(lambda: not parent()["visible"], "parent hidden after helper readiness")
+    until(lambda: js("return window.handoffReady.some(e=>e.id===" + json.dumps(first) + ")"), "helper readiness")
+    assert parent()["visible"], "Browsing host vanished behind the player"
     snapshot = qt_snapshot()
     assert snapshot["ready"] is True and snapshot["visible"] is True, snapshot
     assert snapshot["backend"] == "qt-mpv", snapshot
     assert "/player-assets/qt-player.html" in snapshot["url"], "Helper loaded repository assets instead of packaged resource assets"
+    host_size=js("return {width:innerWidth,height:innerHeight}")
+    assert abs(snapshot["viewportWidth"]-host_size["width"])<=1 and abs(snapshot["viewportHeight"]-host_size["height"])<=1, (snapshot,host_size)
     until(lambda: (qt_snapshot().get("width") or 0) == 640, "actual bundled movie metadata")
     before = qt_snapshot()
     def advancing():
@@ -265,7 +280,7 @@ try:
         return current if not current["paused"] and current["time"] > before["time"] + .5 else None
     after = until(advancing, "packaged movie advances after startup", timeout=20)
     observations.append({"case": "bundled-ready", "before": before, "after": after})
-    close(first)
+    qt_snapshot("(()=>{document.querySelector('[data-p=close]').click();return true})()")
     event = until(lambda: closed(first), "matching first close event")
     assert not event.get("error"), event
     assert event["visible"], "Host was not restored when close event arrived"
@@ -275,7 +290,7 @@ try:
     print("PASS packaged Qt handoff, native readiness, real movie progress, stopped position and focus restoration", flush=True)
 
     old = start("old")
-    until(lambda: not parent()["visible"], "replacement source ready")
+    until(lambda: js("return window.handoffReady.some(e=>e.id===" + json.dumps(old) + ")"), "replacement source ready")
     ready = qt_snapshot()
     assert ready["ready"] and ready["visible"], ready
     until(lambda: (qt_snapshot().get("width") or 0) == 640, "old movie opened")
@@ -283,8 +298,8 @@ try:
     new = start("new")
     assert new != old, "Replacement reused an old session id"
     old_event = until(lambda: closed(old), "retired helper close event")
-    assert old_event["visible"] is False, "Late old helper exit restored the browser over its replacement"
-    assert not parent()["visible"], "Replacement handoff revealed browsing host"
+    assert old_event["visible"] is True, "Retired helper hid the browsing host"
+    assert parent()["visible"], "Replacement handoff hid the browsing host"
     # Two helpers may briefly compete for the one CI CDP port. Verify the new
     # actual helper through its own Jellyfin session rather than reattaching to
     # a stale old debugger or pretending DOM state belongs to the new process.
@@ -298,7 +313,7 @@ try:
     close(old)  # A stale owner must not be able to close the active helper.
     time.sleep(.5)
     assert closed(new) is None, "Stale qt_close terminated the replacement"
-    assert not parent()["visible"], "Stale qt_close restored browsing over the replacement"
+    assert parent()["visible"], "Stale qt_close hid the browsing host"
     close(new)
     new_event = until(lambda: closed(new), "replacement close event")
     assert not new_event.get("error"), new_event

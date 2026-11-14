@@ -13,7 +13,7 @@ Window {
     title: "Zenith"
     color: "black"
     flags: Qt.Window | Qt.FramelessWindowHint
-    visible: true
+    visible: false
     Component.onCompleted: {
         // Explicit registration avoids registeredObjects_append looking up a
         // QQmlContext on a bridge constructed in C++. Register before navigation.

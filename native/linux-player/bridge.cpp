@@ -30,6 +30,16 @@ void Bridge::attach(QObject *item, QObject *win) {
     video = qobject_cast<VideoItem *>(item);
     window = qobject_cast<QQuickWindow *>(win);
     if (!video || !window) { shutdown(); return; }
+    const auto geometry = bootstrapData.value("window").toMap();
+    if (geometry.value("width").toInt() >= 320 && geometry.value("height").toInt() >= 180)
+        window->resize(std::clamp(geometry.value("width").toInt(), 320, 16384),
+                       std::clamp(geometry.value("height").toInt(), 180, 16384));
+    // Global positioning is intentionally left to Wayland's compositor.
+    if (QGuiApplication::platformName() == "xcb" && !geometry.value("x").isNull() && !geometry.value("y").isNull())
+        window->setPosition(geometry.value("x").toInt(), geometry.value("y").toInt());
+    if (geometry.value("fullscreen").toBool()) window->showFullScreen();
+    else if (geometry.value("maximized").toBool()) window->showMaximized();
+    else window->show();
     connect(video, &VideoItem::snapshotChanged, this, [this](const QVariantMap &s) { emit event("media", s); });
     connect(video, &VideoItem::rendererInitialized, this, &Bridge::checkReady);
     checkReady();

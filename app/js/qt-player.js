@@ -38,8 +38,17 @@ export function bindQtWindowDrag(document,qt) {
   let press = null;
   document.addEventListener('mousedown',event => {
     const target = event.target;
+    press = null;
+    if (event.button !== 0 || event.detail > 1 || document.body.classList.contains('fullscreen')) return;
+    const interactive = target?.closest?.('button,a,input,select,textarea,[role=slider],.pl-bottom,.pl-menu,.pl-next,.pl-error,.pl-info');
+    if (!interactive && target?.closest?.('.pl-top')) {
+      // Start while the native pointer press is still active. Wayland system
+      // moves require that input gesture; do not wait for a later mouse move.
+      qt.call('win',{action:'drag'}).catch(() => {});
+      return;
+    }
     const canDrag = document.body.classList.contains('mini') && target?.closest?.('#player')
-      && !target.closest('button,a,input,select,textarea,[role=slider],.pl-bottom,.pl-menu,.pl-next,.pl-error,.pl-info');
+      && !interactive;
     press = event.button === 0 && event.detail < 2 && canDrag ? {x:event.screenX,y:event.screenY} : null;
   });
   document.addEventListener('mousemove',event => {
@@ -78,6 +87,7 @@ export async function startQtPlayer(scope = window, importModule = path => impor
   });
   const payload = await qt.call('bootstrap');
   seedQtBootstrap(payload,scope.localStorage);
+  scope.document.body.classList.toggle('fullscreen',!!payload.window?.fullscreen);
   qt.qtVersion = payload.qtVersion;
   qt.diagnostics = {backend:payload.backend || 'qt-mpv',qtVersion:payload.qtVersion};
   const core = await importModule('./core.js');

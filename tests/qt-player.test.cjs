@@ -61,6 +61,17 @@ test('handoff cancellation closes a late owned id and cannot cancel a replacemen
  const second=h.play({item:{Id:'b'}});firstRelease({id:'a'});await assert.rejects(first,{name:'AbortError'});release({id:'b'});await second;
  listener('qt-player-closed',{id:'a'});assert.equal(h.isOpen(),true);assert.deepEqual(closed,['a']);await h.close();assert.deepEqual(closed,['a','b']);
 });
+test('merged search and resume cards cross the playback bridge without cyclic UI metadata',async()=>{
+ const item={Id:'movie',Name:'Oppenheimer',_g:'zenith',MediaSources:[{Id:'original',Container:'mkv'}]};
+ item._copies=[item,{Id:'other-copy',_g:'other-server'}];
+ const episode={Id:'episode',_g:'zenith'};episode._copies=[episode];
+ let received;
+ const h=load('qt-handoff','createQtHandoff').createQtHandoff({on(){return()=>{}},qtPlay:async value=>{received=JSON.parse(JSON.stringify(value));return{id:'movie'}},qtClose:async()=>{}});
+ await h.play({item,options:{start:12,queue:[episode]},group:{id:'zenith'},selection:{for:'movie',group:'zenith',sub:'off'}});
+ assert.equal(received.item.Id,'movie');assert.equal(received.item._g,'zenith');assert.equal(received.item.MediaSources[0].Id,'original');
+ assert.equal(received.options.queue[0]._g,'zenith');assert.equal(received.item._copies,undefined);assert.equal(received.options.queue[0]._copies,undefined);
+ assert.equal(item._copies[0],item);assert.equal(episode._copies[0],episode);await h.close();
+});
 test('handoff handles close events that beat the qtPlay response',async()=>{
  let listener,release,notification;const h=load('qt-handoff','createQtHandoff').createQtHandoff({on(fn){listener=fn;return()=>{}},qtPlay:()=>new Promise(r=>release=r),qtClose:async()=>{}},{onClosed:data=>notification=data});
  const pending=h.play({});listener('qt-player-closed',{id:'early',error:'Playback helper stopped.'});release({id:'early'});
@@ -88,7 +99,7 @@ test('bootstrap stores only the active group before core imports and bridge corr
 test('Qt startup waits for bootstrap before loading shared state and closes through the existing player',async()=>{
  const {startQtPlayer}=load('qt-player','startQtPlayer'),values=new Map(),calls=[],exitArgs=[];let complete,events,request,coreListener,played,closed=0;
  const bridge={completed:{connect(fn){complete=fn}},event:{connect(fn){events=fn}},request(id,action,args){calls.push(action);if(action==='exit')exitArgs.push(args);if(action==='bootstrap')request=id;else complete(id,{ok:true,data:{}})}};
- const doc=Object.assign(new EventTarget(),{hasFocus:()=>true,body:{classList:{contains:()=>false}}});
+ const doc=Object.assign(new EventTarget(),{hasFocus:()=>true,body:{classList:{contains:()=>false,toggle(){}}}});
  const scope={qt:{webChannelTransport:{}},QWebChannel:function(t,ready){ready({objects:{bridge}})},localStorage:{setItem:(k,v)=>values.set(k,v)},document:doc};
  const promise=startQtPlayer(scope,async path=>{
    assert.equal(values.get('zenith-device'),'device');assert.equal(scope.zenithDesktop.qtPlayer,true);
@@ -100,7 +111,7 @@ test('Qt startup waits for bootstrap before loading shared state and closes thro
  events('close-request',{});await Promise.resolve();assert.equal(closed,1);assert.ok(calls.includes('exit'));assert.equal(exitArgs[0]?.playback?.volume,.42);assert.equal(exitArgs[0]?.playback?.subtitleSize,130);
 });
 test('mini dragging starts only after movement outside interactive player controls',()=>{
- const {bindQtWindowDrag}=load('qt-player','bindQtWindowDrag'),calls=[],doc=Object.assign(new EventTarget(),{body:{classList:{contains:()=>true}}});
+ const {bindQtWindowDrag}=load('qt-player','bindQtWindowDrag'),calls=[],doc=Object.assign(new EventTarget(),{body:{classList:{contains:key=>key==='mini'}}});
  bindQtWindowDrag(doc,{call:async(...args)=>calls.push(args)});
  const target={closest:selector=>selector==='#player'?{}:null};
  function send(type,props){const event=new Event(type);Object.assign(event,props);Object.defineProperty(event,'target',{value:target});doc.dispatchEvent(event)}
@@ -108,4 +119,15 @@ test('mini dragging starts only after movement outside interactive player contro
  send('mousemove',{buttons:1,screenX:16,screenY:10});assert.equal(calls[0][0],'win');assert.equal(calls[0][1].action,'drag');
  target.closest=selector=>selector==='#player'||selector.includes('button')?{}:null;
  send('mousedown',{button:0,detail:1,screenX:10,screenY:10});send('mousemove',{buttons:1,screenX:20,screenY:10});assert.equal(calls.length,1);
+});
+test('normal player title bar starts a native drag on press, excluding controls and fullscreen',()=>{
+ const {bindQtWindowDrag}=load('qt-player','bindQtWindowDrag'),calls=[];
+ const classes=new Set();const doc=Object.assign(new EventTarget(),{body:{classList:{contains:key=>classes.has(key)}}});
+ bindQtWindowDrag(doc,{call:async(...args)=>calls.push(args)});
+ let interactive=false;
+ const target={closest:selector=>selector==='.pl-top'||selector==='#player'?{}:interactive?{}:null};
+ function press(){const event=new Event('mousedown');Object.assign(event,{button:0,detail:1,screenX:20,screenY:20});Object.defineProperty(event,'target',{value:target});doc.dispatchEvent(event);}
+ press();assert.equal(calls.length,1);assert.equal(calls[0][0],'win');assert.equal(calls[0][1].action,'drag');
+ interactive=true;press();assert.equal(calls.length,1);
+ interactive=false;classes.add('fullscreen');press();assert.equal(calls.length,1);
 });

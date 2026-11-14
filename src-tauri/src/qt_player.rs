@@ -18,10 +18,23 @@ fn paths(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
     Ok((helper, assets))
 }
 
-pub async fn open(app: AppHandle, players: Players, payload: Value) -> Result<Value, String> {
+pub async fn open(app: AppHandle, players: Players, mut payload: Value) -> Result<Value, String> {
     if !payload.is_object() || !payload.get("item").is_some_and(Value::is_object)
         || !payload.get("settings").is_some_and(Value::is_object) {
         return Err("Invalid playback request".into());
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let scale = window.scale_factor().unwrap_or(1.0).max(0.25);
+        let size = window.inner_size().ok();
+        let position = window.outer_position().ok();
+        payload["window"] = json!({
+            "width":size.map(|s| (f64::from(s.width)/scale).round()),
+            "height":size.map(|s| (f64::from(s.height)/scale).round()),
+            "x":position.map(|p| (f64::from(p.x)/scale).round()),
+            "y":position.map(|p| (f64::from(p.y)/scale).round()),
+            "maximized":window.is_maximized().unwrap_or(false),
+            "fullscreen":window.is_fullscreen().unwrap_or(false)
+        });
     }
     let mut boot = serde_json::to_vec(&payload).map_err(|_| "Invalid playback request")?;
     if boot.len() > 4 * 1024 * 1024 { return Err("Playback request is too large".into()); }
@@ -81,7 +94,11 @@ pub async fn open(app: AppHandle, players: Players, payload: Value) -> Result<Va
                         Some("ready") => {
                             ready = true;
                             if players.0.lock().unwrap().current(id) {
-                                if let Some(window) = app.get_webview_window("main") { let _ = window.hide(); }
+                                // Keep the browsing surface beneath playback.
+                                // Hiding it leaves an unrelated desktop window
+                                // behind the player and Wayland can reject the
+                                // later background-process focus request.
+                                crate::send(&app, "qt-player-ready", json!({"id":id}));
                             }
                         }
                         Some("discord") if players.0.lock().unwrap().current(id) => { crate::discord::set(event.get("data").cloned().unwrap_or(Value::Null)); }
@@ -101,7 +118,15 @@ pub async fn open(app: AppHandle, players: Players, payload: Value) -> Result<Va
         let owned = players.0.lock().unwrap().finish(id);
         if owned {
             crate::discord::set(Value::Null);
-            if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); }
+            let restore = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                let state = restore.state::<Players>();
+                let ownership = state.inner().0.lock().unwrap();
+                if !ownership.can_restore(id) { return; }
+                if let Some(window) = restore.get_webview_window("main") {
+                    let _ = window.unminimize(); let _ = window.show(); let _ = window.set_focus();
+                }
+            });
         }
         crate::send(&app, "qt-player-closed", json!({"id":id,"playback":playback,
             "error": if failed || !ready { Some("The Linux playback window could not continue.") } else { None }}));

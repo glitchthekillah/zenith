@@ -9,6 +9,7 @@ impl<T> SessionSlot<T> {
     }
     pub fn current(&self, id: u64) -> bool { self.live.as_ref().is_some_and(|(owner, _)| *owner == id) }
     pub fn value(&self) -> Option<&T> { self.live.as_ref().map(|(_, value)| value) }
+    pub fn can_restore(&self, id: u64) -> bool { self.next == id && self.live.is_none() }
     pub fn finish(&mut self, id: u64) -> bool {
         if !self.current(id) { return false; }
         self.live = None;
@@ -33,5 +34,16 @@ impl<T> SessionSlot<T> {
         assert!(slot.finish(id));
         assert!(!slot.finish(id));
         assert_eq!(slot.value(), None);
+    }
+    #[test] fn queued_restore_loses_authority_when_a_new_session_is_claimed() {
+        let mut slot = SessionSlot::default();
+        let (old, _) = slot.claim("old");
+        assert!(slot.finish(old));
+        assert!(slot.can_restore(old));
+        let (new, _) = slot.claim("new");
+        assert!(!slot.can_restore(old));
+        assert!(slot.finish(new));
+        assert!(!slot.can_restore(old));
+        assert!(slot.can_restore(new));
     }
 }
